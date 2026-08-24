@@ -1,15 +1,19 @@
 # ==================================================================
 # scripts/main_ui.gd —— 主界面脚本（挂在 scenes/Main.tscn 根节点）
 # 作者   ：C（画面 + 界面）
-# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7（v0.6）、scripts/contract.gd（只读）
+# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8（v0.7）、scripts/contract.gd（只读）
 # 职责   ：主界面纯显示层。
 #          - 连接信号：gold_changed / mech_girl_updated / mech_exp_updated /
-#            level_cleared / level_progress_changed / idle_rewards_updated / exp_balance_updated
+#            level_cleared / level_progress_changed / idle_rewards_updated /
+#            exp_balance_updated / diamond_changed / fragments_updated / owned_mechs_updated
 #          - 按钮只调入口（契约 §3.6）：升级 → Game.upgrade(id)；
 #            收获 → Game.collect_idle()；进入战斗 → Game.start_battle(level) + 切到 Battle.tscn；
-#            手动存档 → Save.save_game()
+#            抽卡 → 切到 Gacha.tscn；手动存档 → Save.save_game()
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          一切更新值以 Game 信号参数为准，UI 不缓存游戏数值。
+# 机娘列表：只显示已拥有的机娘（契约 §3.8 v0.7：上阵/养成 = 拥有的机娘），
+#          名单来自只读入口 Game.get_owned_mechs()（按 Data 顺序）；
+#          owned_mechs_updated / fragments_updated 到达时重建列表。
 # 首屏说明：本场景会从战斗场景切回（启动时那批初始信号已错过，Game 不重发），
 #          故 _ready 对 Game 公开状态做一次【只读快照】铺首屏（契约 §3.1"首屏铺底例外"），
 #          此后一切更新一律走信号。
@@ -35,12 +39,14 @@ extends Control
 @onready var _collect_button: Button = $root_box/idle_row/collect_button
 @onready var _gold_balance_label: Label = $root_box/balance_row/gold_balance_label
 @onready var _exp_balance_label: Label = $root_box/balance_row/exp_balance_label
+@onready var _diamond_label: Label = $root_box/balance_row/diamond_label
 @onready var _level_box: HBoxContainer = $root_box/level_box
 @onready var _mech_box: VBoxContainer = $root_box/mech_box
 @onready var _last_clear_label: Label = $root_box/last_clear_label
 @onready var _message_label: Label = $root_box/message_label
 @onready var _enter_battle_button: Button = $root_box/bottom_row/enter_battle_button
 @onready var _save_button: Button = $root_box/bottom_row/save_button
+@onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
 
 ## ---- UI 内部状态（仅关卡选择与行引用，不含任何游戏数值）----
 var _selected_level: int = 1
@@ -57,11 +63,15 @@ func _ready() -> void:
 	Contract.level_progress_changed.connect(_on_level_progress_changed)
 	Contract.idle_rewards_updated.connect(_on_idle_rewards_updated)
 	Contract.exp_balance_updated.connect(_on_exp_balance_updated)
+	Contract.diamond_changed.connect(_on_diamond_changed)
+	Contract.fragments_updated.connect(_on_fragments_updated)
+	Contract.owned_mechs_updated.connect(_on_owned_mechs_updated)
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_enter_battle_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
+	_gacha_button.pressed.connect(_on_gacha_pressed)
 	_build_level_buttons()
-	_build_mech_rows()
+	_rebuild_mech_rows()
 	_seed_initial_state()
 
 
@@ -95,6 +105,21 @@ func _on_exp_balance_updated(_balance: int) -> void:
 	# v0.6：全局经验余额变化（挂机收获入账 / 升级补足扣减）
 	_refresh_balance()
 	_refresh_upgrade_buttons()
+
+
+func _on_diamond_changed(value: int) -> void:
+	# v0.7：钻石变化（首通奖励 / 抽卡消耗）
+	_diamond_label.text = "钻石：%d" % value
+
+
+func _on_fragments_updated(_id: StringName, _count: int) -> void:
+	# v0.7：碎片变化（抽到重复机娘转化）——刷新机娘列表（只读；列表本身可能不变）
+	_rebuild_mech_rows()
+
+
+func _on_owned_mechs_updated(_ids: Array) -> void:
+	# v0.7：拥有列表变化（抽到新机娘）——重建机娘列表（新机娘入列）
+	_rebuild_mech_rows()
 
 
 func _on_level_cleared(level: int, first_clear: bool) -> void:
@@ -132,6 +157,11 @@ func _on_enter_battle_pressed() -> void:
 func _on_save_pressed() -> void:
 	Save.save_game()
 	_message_label.text = "已保存"
+
+
+func _on_gacha_pressed() -> void:
+	# v0.7：进入抽卡界面（阶段 1）
+	get_tree().change_scene_to_file("res://scenes/Gacha.tscn")
 
 
 ## ------------------------------------------------------------------
@@ -190,11 +220,17 @@ func _refresh_level_buttons() -> void:
 
 
 ## ------------------------------------------------------------------
-## 机娘列表（名单来自 Data.MECH_GIRLS，动态创建，不硬编码）
+## 机娘列表（只显示已拥有的机娘；名单来自只读入口 Game.get_owned_mechs()，
+## 按 Data 顺序；v0.7 上阵/养成 = 拥有的机娘）
 ## 一行 = 名字 + 状态（Lv/攻/血）+ 经验（exp/exp_next）+ 升级按钮
+## 重建时机：_ready 首屏 / owned_mechs_updated / fragments_updated
 ## ------------------------------------------------------------------
-func _build_mech_rows() -> void:
-	for id in Data.MECH_GIRLS:
+func _rebuild_mech_rows() -> void:
+	for child in _mech_box.get_children():
+		_mech_box.remove_child(child)
+		child.queue_free()
+	_mech_rows.clear()
+	for id in Game.get_owned_mechs():
 		var cfg: Dictionary = Data.MECH_GIRLS[id]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -216,6 +252,7 @@ func _build_mech_rows() -> void:
 		row.add_child(upgrade_button)
 		_mech_box.add_child(row)
 		_mech_rows[id] = { "stats_label": stats_label, "exp_label": exp_label, "upgrade_button": upgrade_button }
+	_refresh_upgrade_buttons()
 
 
 func _on_upgrade_pressed(mech_id: StringName) -> void:
@@ -284,6 +321,7 @@ func _seed_initial_state() -> void:
 	_selected_level = _unlocked_level
 	_gold_label.text = "金币：%d" % Game.gold
 	_idle_rewards_label.text = "待收获：金币 +%d 经验 +%d" % [roundi(Game.idle_pending), roundi(Game.idle_pending_exp)]
+	_diamond_label.text = "钻石：%d" % Game.diamond
 	_refresh_balance()
 	for id in _mech_rows:
 		var level: int = int(Game.mech_levels.get(id, 1))

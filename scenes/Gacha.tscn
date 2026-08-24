@@ -1,0 +1,109 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/gacha_ui.gd" id="1_script"]
+
+[node name="Gacha" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.09, 0.11, 0.15, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 10
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "抽卡"
+horizontal_alignment = 1
+
+[node name="diamond_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "钻石：0"
+horizontal_alignment = 1
+
+[node name="pool_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="standard_button" type="Button" parent="root_box/pool_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "常驻池"
+
+[node name="novice_button" type="Button" parent="root_box/pool_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "新手池"
+
+[node name="cost_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "单抽 300 钻石 / 十连 2800 钻石"
+horizontal_alignment = 1
+
+[node name="pity_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "SSR 保底进度：0/80"
+horizontal_alignment = 1
+
+[node name="hint_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "十连必出 ≥1 张 SR；新手池首十连必出星澜（SSR）；重复机娘转为碎片"
+horizontal_alignment = 1
+
+[node name="summon_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="single_button" type="Button" parent="root_box/summon_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "单抽"
+
+[node name="ten_button" type="Button" parent="root_box/summon_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "十连"
+
+[node name="result_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 抽卡结果 ——"
+horizontal_alignment = 1
+
+[node name="result_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="owned_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 已拥有机娘 ——"
+horizontal_alignment = 1
+
+[node name="owned_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="back_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "返回主界面"

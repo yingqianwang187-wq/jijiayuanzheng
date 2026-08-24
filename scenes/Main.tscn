@@ -49,6 +49,11 @@ layout_mode = 2
 text = "经验 0 (+0)"
 horizontal_alignment = 2
 
+[node name="diamond_label" type="Label" parent="root_box/balance_row"]
+layout_mode = 2
+text = "钻石 0"
+horizontal_alignment = 2
+
 [node name="title_label" type="Label" parent="root_box"]
 layout_mode = 2
 text = "机甲远征"
@@ -113,3 +118,8 @@ text = "进入战斗"
 layout_mode = 2
 size_flags_horizontal = 3
 text = "手动存档"
+
+[node name="gacha_button" type="Button" parent="root_box/bottom_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "抽卡"
