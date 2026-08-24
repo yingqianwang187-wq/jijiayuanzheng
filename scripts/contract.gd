@@ -1,4 +1,4 @@
-# 机娘放置挂机游戏 · 公共契约（代码版） v0.7
+# 机娘放置挂机游戏 · 公共契约（代码版） v0.8
 # ==================================================================
 # 作者   ：契约官（= 总指挥 A，手册第三节；只写契约与常量脚本，不写业务逻辑）
 # 依据   ：docs/契约.md（文档版，必须与本文件同步修改、同步升版本号）
@@ -14,6 +14,10 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.8（阶段 2 战斗 2.0）：九宫格 5v5、全自动战斗；新增信号 skill_cast / energy_changed /
+#               status_changed / wave_changed / battle_prompt / battle_star / formation_changed；
+#               6 职业（坦克/战士/刺客/射手/法师/辅助）+ 克制环；技能（被动/2 小技/大招）、能量、暴击闪避、
+#               状态、多波+BOSS、2x 加速+扫荡、1~3 星、阵型预设、伤害统计；术语新增职业/技能/能量/战力等。
 #   v0.7（阶段 1 抽卡）：钻石货币（信号 diamond_changed）；抽卡系统（信号 gacha_result、
 #               入口 summon/summon_cost/summon_pity_info/get_owned_mechs）；新机娘与卡池数据；
 #               碎片计数（信号 fragments_updated）；拥有与上阵（信号 owned_mechs_updated）。
@@ -36,7 +40,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.7"
+const CONTRACT_VERSION := "v0.8"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -68,6 +72,23 @@ const TERM_DIAMOND   := "diamond"     # 钻石（阶段 1 起用）
 const TERM_FRAGMENT  := "fragment"    # 碎片（重复机娘转化所得，升星素材）
 const TERM_SUMMON    := "summon"      # 抽卡
 const TERM_SUMMON_TICKET := "summon_ticket"  # 召唤券（等价钻石，阶段 2 启用来源）
+
+# ---- 战斗 2.0 术语（阶段 2，设计文档 §2.5 / §8.3 / §10.10）----
+const TERM_CLASS_TANK     := "tank"      # 坦克（前排抗伤）
+const TERM_CLASS_FIGHTER  := "fighter"   # 战士（近战均衡）
+const TERM_CLASS_ASSASSIN := "assassin"  # 刺客（近战爆发）
+const TERM_CLASS_ARCHER   := "archer"    # 射手（远程物理）
+const TERM_CLASS_MAGE     := "mage"      # 法师（远程魔法）
+const TERM_CLASS_SUPPORT  := "support"   # 辅助（治疗/增益）
+const TERM_SKILL          := "skill"     # 技能（被动/小技/大招）
+const TERM_ENERGY         := "energy"    # 能量（大招充能，100 满）
+const TERM_CRIT           := "crit"      # 暴击
+const TERM_DODGE          := "dodge"     # 闪避
+const TERM_STATUS         := "status"    # 状态效果（眩晕/灼烧/中毒/加攻/减防/治疗/护盾）
+const TERM_WAVE           := "wave"      # 波次
+const TERM_BOSS           := "boss"      # 章节 Boss
+const TERM_FORMATION      := "formation" # 阵型（3x3 九宫格选 5 格布阵）
+const TERM_STAR           := "star"      # 关卡星级（1~3 星）
 const TERM_PAID_COIN := "paid_coin"   # 付费币（阶段 4 起用）
 
 # ------------------------------------------------------------------
@@ -96,3 +117,10 @@ signal diamond_changed(value: int)                                        # 钻�
 signal fragments_updated(id: StringName, count: int)                      # 某机娘碎片变化（抽到重复机娘转化后）
 signal gacha_result(entries: Array)                                       # 抽卡结果（每项 {id, rarity, is_new, fragments}）
 signal owned_mechs_updated(ids: Array)                                    # 已拥有机娘 id 列表变化（抽到新机娘后）
+signal skill_cast(side: StringName, unit_id: StringName, skill_id: StringName, value: int)  # 技能释放（小技/大招/被动触发；value=伤害/治疗/护盾）
+signal energy_changed(side: StringName, unit_id: StringName, energy: int)  # 能量变化
+signal status_changed(side: StringName, unit_id: StringName, status_id: StringName, duration: int)  # 状态增/刷新(duration>0)或移除(0)
+signal wave_changed(wave: int, total: int)                                 # 波次变化
+signal battle_prompt(kind: StringName, text: String)                       # 战斗提示（hit/crit/dodge/kill/skill/heal/shield，按 kind 分色）
+signal battle_star(star: int)                                              # 关卡星级评价（1~3 星）
+signal formation_changed(formation: Array)                                 # 阵型变化（9 格选 5，每格 {id, row, col}）
