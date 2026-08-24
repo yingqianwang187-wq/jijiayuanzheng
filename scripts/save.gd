@@ -20,7 +20,9 @@ const SAVE_PATH := "user://save.json"
 ## 写档：把当前状态（来自 Game 快照）写入 user://save.json
 ## 签名：save_game()（契约 §3.2 / §3.6，无参数；UI / Game 均可调用）
 ## 存档形状：{ gold, exp_balance, idle_pending, idle_pending_exp, idle_last_time,
-##            unlocked_level, first_cleared, mechs{level, exp} }（契约 §3.2，v0.6）
+##            unlocked_level, first_cleared, mechs{level, exp}, diamond, summon_ticket,
+##            fragments{id:int}, owned_mechs{id:true}, pity, novice_free_pull,
+##            novice_pool_left, novice_first_ten_done }（契约 §3.2，v0.7）
 func save_game() -> void:
 	var snapshot: Dictionary = Game.get_save_snapshot()
 	var save_dict := {
@@ -33,6 +35,14 @@ func save_game() -> void:
 		"idle_pending": maxi(int(snapshot.get("idle_pending", 0)), 0),
 		"idle_pending_exp": maxi(int(snapshot.get("idle_pending_exp", 0)), 0),
 		"idle_last_time": int(snapshot.get("idle_last_time", 0)),
+		"diamond": maxi(int(snapshot.get("diamond", 0)), 0),
+		"summon_ticket": maxi(int(snapshot.get("summon_ticket", 0)), 0),
+		"fragments": {},
+		"owned_mechs": {},
+		"pity": clampi(int(snapshot.get("pity", 0)), 0, Data.SUMMON_PITY_SSR_LIMIT),
+		"novice_free_pull": bool(snapshot.get("novice_free_pull", true)),
+		"novice_pool_left": maxi(int(snapshot.get("novice_pool_left", 0)), 0),
+		"novice_first_ten_done": bool(snapshot.get("novice_first_ten_done", false)),
 	}
 	var mechs: Dictionary = snapshot.get("mechs", {})
 	for key in mechs:
@@ -46,6 +56,16 @@ func save_game() -> void:
 	if first_cleared is Array:
 		for l in first_cleared:
 			save_dict["first_cleared"].append(int(l))
+	var fragments: Dictionary = snapshot.get("fragments", {})
+	for key in fragments:
+		var mech_id := StringName(str(key))
+		if Data.MECH_GIRLS.has(mech_id):
+			save_dict["fragments"][str(key)] = maxi(int(fragments[key]), 0)
+	var owned_mechs: Dictionary = snapshot.get("owned_mechs", {})
+	for key in owned_mechs:
+		var mech_id := StringName(str(key))
+		if Data.MECH_GIRLS.has(mech_id):
+			save_dict["owned_mechs"][str(key)] = true
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
 		push_warning("Save.save_game: 无法打开存档文件写入：" + SAVE_PATH)
@@ -53,11 +73,10 @@ func save_game() -> void:
 	file.store_string(JSON.stringify(save_dict))
 	file.close()
 
-## 读档：返回 { gold, exp_balance, mechs, unlocked_level, first_cleared,
-##            idle_pending, idle_pending_exp, idle_last_time }（契约 §3.2，v0.6 存档形状）
+## 读档：返回契约 §3.2 v0.7 存档形状各字段（详见 save_game 注释）
 ## 失败（文件缺失 / 损坏 / 版本不符 / 字段非法）一律返回默认值并继续运行，不报错崩溃。
-## 钳制：exp ≥ 0、exp_balance ≥ 0、idle_pending ≥ 0、idle_pending_exp ≥ 0、
-##       idle_last_time 非法（非正数/非数字）取当前时间。
+## 钳制：exp/exp_balance/idle_pending/idle_pending_exp/diamond/summon_ticket/fragments ≥ 0、
+##       pity 0..SUMMON_PITY_SSR_LIMIT、idle_last_time 非法（非正数/非数字）取当前时间。
 ## 签名：load_game() -> Dictionary
 func load_game() -> Dictionary:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -77,7 +96,11 @@ func load_game() -> Dictionary:
 	if (not parsed_dict.has("gold") or not parsed_dict.has("exp_balance") or not parsed_dict.has("mechs")
 			or not parsed_dict.has("unlocked_level") or not parsed_dict.has("first_cleared")
 			or not parsed_dict.has("idle_pending") or not parsed_dict.has("idle_pending_exp")
-			or not parsed_dict.has("idle_last_time")):
+			or not parsed_dict.has("idle_last_time") or not parsed_dict.has("diamond")
+			or not parsed_dict.has("summon_ticket") or not parsed_dict.has("fragments")
+			or not parsed_dict.has("owned_mechs") or not parsed_dict.has("pity")
+			or not parsed_dict.has("novice_free_pull") or not parsed_dict.has("novice_pool_left")
+			or not parsed_dict.has("novice_first_ten_done")):
 		return _default_data()
 	var result := _default_data()
 	result["gold"] = int(parsed_dict["gold"])
@@ -108,14 +131,37 @@ func load_game() -> Dictionary:
 	var idle_last_time: Variant = parsed_dict["idle_last_time"]
 	if (idle_last_time is float or idle_last_time is int) and int(idle_last_time) > 0:
 		result["idle_last_time"] = int(idle_last_time)
+	# 阶段 1 抽卡相关（v0.7）
+	result["diamond"] = maxi(int(parsed_dict["diamond"]), 0)
+	result["summon_ticket"] = maxi(int(parsed_dict["summon_ticket"]), 0)
+	result["pity"] = clampi(int(parsed_dict["pity"]), 0, Data.SUMMON_PITY_SSR_LIMIT)
+	result["novice_free_pull"] = bool(parsed_dict["novice_free_pull"])
+	result["novice_pool_left"] = maxi(int(parsed_dict["novice_pool_left"]), 0)
+	result["novice_first_ten_done"] = bool(parsed_dict["novice_first_ten_done"])
+	var fragments: Variant = parsed_dict["fragments"]
+	if fragments is Dictionary:
+		for key in fragments:
+			var mech_id := StringName(str(key))
+			if Data.MECH_GIRLS.has(mech_id):
+				result["fragments"][mech_id] = maxi(int(fragments[key]), 0)
+	var owned_mechs: Variant = parsed_dict["owned_mechs"]
+	if owned_mechs is Dictionary:
+		for key in owned_mechs:
+			var mech_id := StringName(str(key))
+			if Data.MECH_GIRLS.has(mech_id):
+				result["owned_mechs"][mech_id] = true
 	return result
 
-## 默认档数据（契约 §3.2）：金币 0、全局经验余额 0、机娘取 Data 初始配置（Lv1、个人经验 0）、
-## 解锁关卡 1、first_cleared 为空、待收获金币/经验 0、idle_last_time 取当前时间
+## 默认档数据（契约 §3.2，v0.7）：金币/钻石/余额/待收获均 0、机娘取 Data 初始配置
+## （Lv1、个人经验 0）、拥有开局 2 位机娘、解锁关卡 1、first_cleared 为空、
+## pity 0、novice_free_pull 可用、新手池半价剩 5 次、首十连保底未触发
 func _default_data() -> Dictionary:
 	var mechs := {}
-	for mech_id in Data.MECH_GIRLS:
+	for mech_id in Data.START_MECHS:
 		mechs[mech_id] = { "level": 1, "exp": 0 }
+	var owned := {}
+	for mech_id in Data.START_MECHS:
+		owned[mech_id] = true
 	return {
 		"gold": 0,
 		"exp_balance": 0,
@@ -125,4 +171,12 @@ func _default_data() -> Dictionary:
 		"idle_pending": 0,
 		"idle_pending_exp": 0,
 		"idle_last_time": int(Time.get_unix_time_from_system()),
+		"diamond": 0,
+		"summon_ticket": 0,
+		"fragments": {},
+		"owned_mechs": owned,
+		"pity": 0,
+		"novice_free_pull": true,
+		"novice_pool_left": Data.SUMMON_NOVICE_POOL_LEFT,
+		"novice_first_ten_done": false,
 	}

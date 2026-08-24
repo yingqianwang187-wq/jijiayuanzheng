@@ -114,18 +114,147 @@ const MECH_GIRLS := {
 			"spd_amount": UPGRADE_GROWTH_SPD_AMOUNT,
 		},
 	},
+	&"qianxia": {
+		"name": "千夏",
+		"rarity": Rarity.SR,
+		"role": "辅助·护盾",
+		"base_atk": 10,
+		"base_hp": 130,
+		"base_def": 12,
+		"base_spd": 7,
+		"upgrade_cost": { "base": UPGRADE_COST_BASE, "growth": UPGRADE_COST_GROWTH },
+		"growth": {
+			"atk": UPGRADE_GROWTH_ATK,
+			"hp": UPGRADE_GROWTH_HP,
+			"def": UPGRADE_GROWTH_DEF,
+			"spd_every": UPGRADE_GROWTH_SPD_EVERY,
+			"spd_amount": UPGRADE_GROWTH_SPD_AMOUNT,
+		},
+	},
+	&"lian": {
+		"name": "莲",
+		"rarity": Rarity.SR,
+		"role": "近战·坦克",
+		"base_atk": 14,
+		"base_hp": 190,
+		"base_def": 15,
+		"base_spd": 6,
+		"upgrade_cost": { "base": UPGRADE_COST_BASE, "growth": UPGRADE_COST_GROWTH },
+		"growth": {
+			"atk": UPGRADE_GROWTH_ATK,
+			"hp": UPGRADE_GROWTH_HP,
+			"def": UPGRADE_GROWTH_DEF,
+			"spd_every": UPGRADE_GROWTH_SPD_EVERY,
+			"spd_amount": UPGRADE_GROWTH_SPD_AMOUNT,
+		},
+	},
+	&"yuejian": {
+		"name": "月见",
+		"rarity": Rarity.SR,
+		"role": "远程·狙击",
+		"base_atk": 20,
+		"base_hp": 100,
+		"base_def": 6,
+		"base_spd": 12,
+		"upgrade_cost": { "base": UPGRADE_COST_BASE, "growth": UPGRADE_COST_GROWTH },
+		"growth": {
+			"atk": UPGRADE_GROWTH_ATK,
+			"hp": UPGRADE_GROWTH_HP,
+			"def": UPGRADE_GROWTH_DEF,
+			"spd_every": UPGRADE_GROWTH_SPD_EVERY,
+			"spd_amount": UPGRADE_GROWTH_SPD_AMOUNT,
+		},
+	},
+	&"fei": {
+		"name": "绯",
+		"rarity": Rarity.SSR,
+		"role": "近战·爆发",
+		"base_atk": 26,
+		"base_hp": 160,
+		"base_def": 10,
+		"base_spd": 13,
+		"upgrade_cost": { "base": UPGRADE_COST_BASE, "growth": UPGRADE_COST_GROWTH },
+		"growth": {
+			"atk": UPGRADE_GROWTH_ATK,
+			"hp": UPGRADE_GROWTH_HP,
+			"def": UPGRADE_GROWTH_DEF,
+			"spd_every": UPGRADE_GROWTH_SPD_EVERY,
+			"spd_amount": UPGRADE_GROWTH_SPD_AMOUNT,
+		},
+	},
+	&"xinglan": {
+		"name": "星澜",
+		"rarity": Rarity.SSR,
+		"role": "远程·炮击",
+		"base_atk": 30,
+		"base_hp": 130,
+		"base_def": 8,
+		"base_spd": 11,
+		"upgrade_cost": { "base": UPGRADE_COST_BASE, "growth": UPGRADE_COST_GROWTH },
+		"growth": {
+			"atk": UPGRADE_GROWTH_ATK,
+			"hp": UPGRADE_GROWTH_HP,
+			"def": UPGRADE_GROWTH_DEF,
+			"spd_every": UPGRADE_GROWTH_SPD_EVERY,
+			"spd_amount": UPGRADE_GROWTH_SPD_AMOUNT,
+		},
+	},
+}
+
+## 开局已拥有的机娘（设计文档 §9 阶段 0：2 位；契约 §3.8 v0.7：上阵 = 拥有的机娘）
+const START_MECHS := [&"xiao_yu", &"a_lan"]
+
+# ------------------------------------------------------------------
+# 抽卡 / 召唤系统（契约 §3.8、设计文档 §4，阶段 1；数值全部放 Data）
+# ------------------------------------------------------------------
+
+## 抽卡价格（设计文档 §4.3）：单抽 / 十连；新手池半价（共 5 次，见 SUMMON_NOVICE_POOL_LEFT）
+const SUMMON_COST_SINGLE := 300
+const SUMMON_COST_TEN := 2800
+const SUMMON_NOVICE_DISCOUNT := 0.5        # 新手池半价系数
+
+## 出货概率（设计文档 §4.4）：SSR 3% / SR 17% / R 80%
+const SUMMON_RATE_SSR := 0.03
+const SUMMON_RATE_SR := 0.17
+const SUMMON_RATE_R := 0.80
+
+## 保底（设计文档 §4.5）：每 80 抽内必出 ≥1 个 SSR（跨十连累计，出 SSR 后重置）；
+## 十连必出 ≥1 个 SR（无则补一张 SR）；新手池首十连保底出星澜（见 SUMMON_POOLS）
+const SUMMON_PITY_SSR_LIMIT := 80
+
+## 新手福利（设计文档 §4.7）：开局免费十连 ×1；新手池半价共 5 次
+const SUMMON_NOVICE_FREE_TEN := 1          # 免费十连次数（MVP 仅 1 次）
+const SUMMON_NOVICE_POOL_LEFT := 5         # 新手池半价剩余次数（初始）
+
+## 重复机娘 → 碎片换算（设计文档 §4.6 / §8.4：R=10 / SR=20 / SSR=50）
+const FRAGMENT_CONVERT := { Rarity.R: 10, Rarity.SR: 20, Rarity.SSR: 50 }
+
+## 卡池表（设计文档 §4.2，v0.4 定稿）
+##   standard 常驻池 = 全部 7 位（2R + 3SR + 2SSR）
+##   novice   新手池 = 星澜(SSR 首十连保底位) + 千夏/莲(SR) + 小钰/阿岚(R)；半价 ×5
+##   first_ten_pity：新手池首次十连保底必出的机娘 id（首十连保底位，保底位除外按稀有度占比）
+const SUMMON_POOLS := {
+	&"standard": {
+		"name": "常驻池",
+		"members": [&"xiao_yu", &"a_lan", &"qianxia", &"lian", &"yuejian", &"fei", &"xinglan"],
+	},
+	&"novice": {
+		"name": "新手池",
+		"members": [&"xinglan", &"qianxia", &"lian", &"xiao_yu", &"a_lan"],
+		"first_ten_pity": &"xinglan",
+	},
 }
 
 # ------------------------------------------------------------------
 # 关卡数值表（设计文档 §8.4）
 #   字段：enemies 敌人列表（MVP 每关 1 波 = 1 个敌人，用数组以便后续扩展多敌，
 #         v0.2 起数据结构按"敌方每波最多 5 名"预留）/
-#         first_clear_reward 首通奖励金币（§8.4 首通奖励表"金币"列；
-#         钻石为阶段 1 内容，MVP 不做）/
+#         first_clear_reward 首通奖励金币（§8.4 首通奖励表"金币"列）/
+#         first_clear_reward_diamond 首通奖励钻石（§8.4 首通奖励表"钻石"列；阶段 1 起发放）/
 #         victory_reward_exp 战斗胜利经验 = 10 + 关卡 × 3（§8.4 v0.2；
 #         非首通重复胜利也给经验，失败无经验）
 #   说明：
-#     - 非首通通关无金币奖励（设计文档 §3.2：金币来源 = 挂机收获 + 关卡首通）。
+#     - 非首通通关无金币/钻石奖励（设计文档 §3.2：金币来源 = 挂机收获 + 关卡首通）。
 #     - 敌人 def / spd：设计文档 §8.4 敌人表只给出攻击 / 血量，故防御取 0（无减伤）、
 #       速度取 0（敌方后手，契合契约 §1.3"我方全体攻击一次 → 敌方全体攻击一次"的出手顺序）。
 #     - 敌人 name 为 B 补充的占位名（非数值），C 可用图形/头像替代显示。
@@ -137,6 +266,7 @@ const LEVELS := {
 			{ "id": &"enemy_1", "name": "暴走机械兵", "atk": 14, "hp": 120, "def": 0, "spd": 0 },
 		],
 		"first_clear_reward": 100,
+		"first_clear_reward_diamond": 30,
 		"victory_reward_exp": 13,
 	},
 	2: {
@@ -144,6 +274,7 @@ const LEVELS := {
 			{ "id": &"enemy_2", "name": "暴走机械兵", "atk": 17, "hp": 146, "def": 0, "spd": 0 },
 		],
 		"first_clear_reward": 150,
+		"first_clear_reward_diamond": 40,
 		"victory_reward_exp": 16,
 	},
 	3: {
@@ -151,6 +282,7 @@ const LEVELS := {
 			{ "id": &"enemy_3", "name": "暴走机械兵", "atk": 21, "hp": 179, "def": 0, "spd": 0 },
 		],
 		"first_clear_reward": 220,
+		"first_clear_reward_diamond": 50,
 		"victory_reward_exp": 19,
 	},
 	4: {
@@ -158,6 +290,7 @@ const LEVELS := {
 			{ "id": &"enemy_4", "name": "暴走机械兵", "atk": 25, "hp": 218, "def": 0, "spd": 0 },
 		],
 		"first_clear_reward": 320,
+		"first_clear_reward_diamond": 60,
 		"victory_reward_exp": 22,
 	},
 	5: {
@@ -165,6 +298,7 @@ const LEVELS := {
 			{ "id": &"enemy_5", "name": "暴走机械兵", "atk": 31, "hp": 266, "def": 0, "spd": 0 },
 		],
 		"first_clear_reward": 480,
+		"first_clear_reward_diamond": 80,
 		"victory_reward_exp": 25,
 	},
 }

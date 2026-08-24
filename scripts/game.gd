@@ -32,6 +32,16 @@ var _idle_save_accum: float = 0.0               # 节流存档计时（秒）
 ## 战斗经验进个人条；升级时个人条不足自动从余额补
 var exp_balance: int = 0
 
+## 阶段 1 抽卡状态（契约 §3.8，v0.7）
+var diamond: int = 0                              # 钻石（首通奖励 / 抽卡消耗）
+var summon_ticket: int = 0                        # 召唤券（等价钻石；阶段 2 启用来源，先存字段）
+var fragments: Dictionary = {}                    # { StringName id: int } 机娘碎片计数（重复机娘转化）
+var owned_mechs: Dictionary = {}                  # { StringName id: true } 已拥有机娘
+var pity: int = 0                                 # SSR 保底计数（全局，每 80 抽必出 SSR，出 SSR 重置）
+var novice_free_pull: bool = true                 # 开局免费十连是否可用（首次十连免钻石）
+var novice_pool_left: int = 5                     # 新手池半价剩余次数（初始 = Data.SUMMON_NOVICE_POOL_LEFT = 5）
+var novice_first_ten_done: bool = false           # 新手池首十连保底（必出星澜）是否已触发
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -63,15 +73,38 @@ func _load_initial_state() -> void:
 	gold = maxi(int(data.get("gold", 0)), 0)
 	exp_balance = maxi(int(data.get("exp_balance", 0)), 0)
 	unlocked_level = clampi(int(data.get("unlocked_level", 1)), 1, Data.MAX_LEVEL)
+	# 阶段 1 抽卡状态恢复（契约 §3.8，v0.7）
+	diamond = maxi(int(data.get("diamond", 0)), 0)
+	summon_ticket = maxi(int(data.get("summon_ticket", 0)), 0)
+	pity = clampi(int(data.get("pity", 0)), 0, Data.SUMMON_PITY_SSR_LIMIT)
+	novice_free_pull = bool(data.get("novice_free_pull", true))
+	novice_pool_left = maxi(int(data.get("novice_pool_left", Data.SUMMON_NOVICE_POOL_LEFT)), 0)
+	novice_first_ten_done = bool(data.get("novice_first_ten_done", false))
+	fragments.clear()
+	var fragments_data: Dictionary = data.get("fragments", {})
+	for key in fragments_data:
+		var frag_id := StringName(str(key))
+		if Data.MECH_GIRLS.has(frag_id):
+			fragments[frag_id] = maxi(int(fragments_data[key]), 0)
+	# 拥有恢复：默认开局 2 位（Data.START_MECHS）+ 存档拥有；只认 Data 中存在的机娘
+	owned_mechs.clear()
+	for mech_id in Data.START_MECHS:
+		owned_mechs[mech_id] = true
+	var owned_data: Dictionary = data.get("owned_mechs", {})
+	for key in owned_data:
+		var mid := StringName(str(key))
+		if Data.MECH_GIRLS.has(mid):
+			owned_mechs[mid] = true
+	# 成长状态只建"已拥有"机娘（未拥有无等级/经验；抽到新机娘时再初始化）
 	mech_levels.clear()
 	mech_exp.clear()
-	for mech_id in Data.MECH_GIRLS:
+	for mech_id in _owned_mech_ids():
 		mech_levels[mech_id] = 1
 		mech_exp[mech_id] = 0
 	var mechs: Dictionary = data.get("mechs", {})
 	for key in mechs:
 		var mech_id := StringName(str(key))
-		if Data.MECH_GIRLS.has(mech_id):
+		if Data.MECH_GIRLS.has(mech_id) and owned_mechs.has(mech_id):
 			var entry: Dictionary = mechs[key]
 			mech_levels[mech_id] = maxi(int(entry.get("level", 1)), 1)
 			mech_exp[mech_id] = maxi(int(entry.get("exp", 0)), 0)
@@ -103,17 +136,19 @@ func _setup_timers() -> void:
 	battle_timer.timeout.connect(_on_battle_tick)
 	add_child(battle_timer)
 
-## 发初始状态信号（gold_changed / mech_girl_updated / mech_exp_updated /
-## exp_balance_updated / level_progress_changed / idle_rewards_updated）
+## 发初始状态信号（gold_changed / diamond_changed / mech_girl_updated / mech_exp_updated /
+## exp_balance_updated / level_progress_changed / idle_rewards_updated / owned_mechs_updated）
 func _emit_initial_state() -> void:
 	Contract.gold_changed.emit(gold)
-	for mech_id in Data.MECH_GIRLS:
+	Contract.diamond_changed.emit(diamond)
+	for mech_id in _owned_mech_ids():
 		var s := _mech_stats(mech_id)
 		Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
 		Contract.mech_exp_updated.emit(mech_id, int(mech_exp.get(mech_id, 0)), _upgrade_exp_cost(mech_id, int(mech_levels.get(mech_id, 1))))
 	Contract.exp_balance_updated.emit(exp_balance)
 	Contract.level_progress_changed.emit(unlocked_level)
 	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
+	Contract.owned_mechs_updated.emit(_owned_mech_ids())
 
 ## 由 Data 基础值 + 当前等级计算机娘完整属性（hp 为满血）
 func _mech_stats(mech_id: StringName) -> Dictionary:
@@ -146,7 +181,7 @@ func _upgrade_exp_cost(mech_id: StringName, current_level: int) -> int:
 ## 金币不足同样失败。
 ## ---------------------------------------------------------------
 func upgrade(mech_id: StringName) -> void:
-	if not Data.MECH_GIRLS.has(mech_id):
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
 		return
 	var current_level: int = int(mech_levels.get(mech_id, 1))
 	var current_exp: int = int(mech_exp.get(mech_id, 0))
@@ -191,7 +226,12 @@ func start_battle(level: int) -> void:
 		"mechs": [],
 		"enemies": [],
 	}
+	# 上阵 = 已拥有机娘的前 ≤5 位（按 Data.MECH_GIRLS 声明顺序；契约 §1.2 / §3.8 v0.7）
 	for mech_id in Data.MECH_GIRLS:
+		if not owned_mechs.has(mech_id):
+			continue
+		if battle.mechs.size() >= 5:
+			break
 		var s := _mech_stats(mech_id)
 		battle.mechs.append({ "id": mech_id, "hp": s.hp, "atk": s.atk, "def": s.def, "spd": s.spd, "level": s.level })
 	for e in Data.LEVELS[level].enemies:
@@ -285,6 +325,10 @@ func _resolve_victory() -> void:
 		if reward > 0:
 			gold += reward
 			Contract.gold_changed.emit(gold)
+		var diamond_reward: int = int(Data.LEVELS[level].first_clear_reward_diamond)
+		if diamond_reward > 0:
+			diamond += diamond_reward
+			Contract.diamond_changed.emit(diamond)
 		var next_level: int = level + 1
 		if next_level <= Data.MAX_LEVEL and next_level > unlocked_level:
 			unlocked_level = next_level
@@ -375,15 +419,172 @@ func upgrade_exp_cost(mech_id: StringName) -> int:
 func _idle_gold_rate() -> float:
 	return float(Data.IDLE_GOLD_BASE) * pow(float(Data.IDLE_GOLD_GROWTH), float(cleared_levels.size()))
 
+## 已拥有机娘 id 列表（按 Data.MECH_GIRLS 声明顺序；契约 §3.8 v0.7）
+func _owned_mech_ids() -> Array:
+	var ids: Array = []
+	for mech_id in Data.MECH_GIRLS:
+		if owned_mechs.has(mech_id):
+			ids.append(mech_id)
+	return ids
+
+## ---------------------------------------------------------------
+## 抽卡（契约 §3.6 / §3.8 入口，v0.7）
+## 签名：summon(pool: StringName, times: int)
+## 流程：校验 → 计费（免费十连 / 新手池半价 / 全价；钻石不足失败）→ 按概率抽
+##       → 保底处理（80 抽 SSR / 十连 SR / 新手池首十连星澜）→ 新机娘入拥有、
+##       重复转碎片 → 发 diamond_changed / fragments_updated / owned_mechs_updated /
+##       gacha_result → 自动存档
+## ---------------------------------------------------------------
+func summon(pool: StringName, times: int) -> void:
+	if not Data.SUMMON_POOLS.has(pool):
+		return
+	if times != 1 and times != 10:
+		return
+	var cost: int = _summon_cost(pool, times)
+	if cost > 0 and diamond < cost:
+		return  # 钻石不足：失败不发信号
+	# 计费状态消耗：免费十连优先（不耗新手池半价次数），否则新手池半价扣次数
+	if times == 10 and novice_free_pull:
+		novice_free_pull = false
+	elif pool == &"novice" and novice_pool_left > 0:
+		novice_pool_left -= 1
+	if cost > 0:
+		diamond -= cost
+		Contract.diamond_changed.emit(diamond)
+	var pool_cfg: Dictionary = Data.SUMMON_POOLS[pool]
+	# 新手池首十连保底：本次十连第 10 张必出保底位（星澜）
+	var first_ten_pity: bool = (pool == &"novice" and times == 10 and not novice_first_ten_done)
+	if first_ten_pity:
+		novice_first_ten_done = true
+	# 1. 生成原始结果 id 列表（含 SSR 80 保底 / 首十连保底）
+	var raw_ids: Array = []
+	for i in times:
+		raw_ids.append(_roll_with_pity(pool_cfg, first_ten_pity and i == times - 1))
+	# 2. 十连 SR 保底：十连内无 SR+ 则最后一张补为 SR（设计文档 §4.5）
+	if times == 10 and not _ids_contain_sr_plus(raw_ids):
+		raw_ids[times - 1] = _random_member_of_rarity(pool_cfg, Data.Rarity.SR)
+	# 3. 应用结果：新机娘入拥有（初始化成长）、重复转碎片
+	var entries: Array = []
+	var got_new := false
+	for mech_id in raw_ids:
+		var entry := _apply_summon_result(StringName(mech_id))
+		entries.append(entry)
+		if bool(entry.is_new):
+			got_new = true
+	# 4. 结果信号 + 自动存档
+	if got_new:
+		Contract.owned_mechs_updated.emit(_owned_mech_ids())
+	Contract.gacha_result.emit(entries)
+	Save.save_game()
+
+## 单抽内部：SSR 80 保底累计 + 按概率抽一个机娘（契约 §3.8）
+func _roll_with_pity(pool_cfg: Dictionary, force_first_ten: bool) -> StringName:
+	if force_first_ten:
+		# 首十连保底位必出（保底位为 SSR，出 SSR 重置保底计数）
+		pity = 0
+		return StringName(pool_cfg.first_ten_pity)
+	pity += 1
+	var mech_id: StringName = _roll_summon(pool_cfg)
+	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
+	if int(cfg.rarity) == Data.Rarity.SSR:
+		pity = 0
+	elif pity >= Data.SUMMON_PITY_SSR_LIMIT:
+		# 每 80 抽必出 ≥1 SSR：强制补一张 SSR 并重置
+		mech_id = _random_member_of_rarity(pool_cfg, Data.Rarity.SSR)
+		pity = 0
+	return mech_id
+
+## 按稀有度占比（SSR 3% / SR 17% / R 80%）随机抽一个池内成员
+func _roll_summon(pool_cfg: Dictionary) -> StringName:
+	var roll: float = randf()
+	if roll < Data.SUMMON_RATE_SSR:
+		return _random_member_of_rarity(pool_cfg, Data.Rarity.SSR)
+	elif roll < Data.SUMMON_RATE_SSR + Data.SUMMON_RATE_SR:
+		return _random_member_of_rarity(pool_cfg, Data.Rarity.SR)
+	return _random_member_of_rarity(pool_cfg, Data.Rarity.R)
+
+## 池内某稀有度随机成员；池内无该稀有度（如新手池 SSR 仅保底位）时退回全池随机
+func _random_member_of_rarity(pool_cfg: Dictionary, rarity: int) -> StringName:
+	var candidates: Array = []
+	for mech_id in pool_cfg.members:
+		if int(Data.MECH_GIRLS[mech_id].rarity) == rarity:
+			candidates.append(mech_id)
+	if candidates.is_empty():
+		candidates.assign(pool_cfg.members)
+	return StringName(candidates[randi() % candidates.size()])
+
+## 十连 SR 保底判定：结果中是否有 SR 及以上
+func _ids_contain_sr_plus(ids: Array) -> bool:
+	for mech_id in ids:
+		if int(Data.MECH_GIRLS[mech_id].rarity) >= Data.Rarity.SR:
+			return true
+	return false
+
+## 应用单抽结果：新机娘入拥有（初始化 Lv1 / 经验 0）；重复转碎片（R10/SR20/SSR50）
+## 返回 gacha_result 单项：{ id, rarity, is_new, fragments }
+func _apply_summon_result(mech_id: StringName) -> Dictionary:
+	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
+	var entry := { "id": mech_id, "rarity": int(cfg.rarity), "is_new": false, "fragments": 0 }
+	if owned_mechs.has(mech_id):
+		# 重复机娘 → 碎片（契约 §3.8 / 设计文档 §4.6）
+		var convert: int = int(Data.FRAGMENT_CONVERT[int(cfg.rarity)])
+		fragments[mech_id] = int(fragments.get(mech_id, 0)) + convert
+		entry["fragments"] = convert
+		Contract.fragments_updated.emit(mech_id, int(fragments[mech_id]))
+	else:
+		owned_mechs[mech_id] = true
+		mech_levels[mech_id] = 1
+		mech_exp[mech_id] = 0
+		entry["is_new"] = true
+	return entry
+
+## ---------------------------------------------------------------
+## 只读：该池该次数所需钻石（契约 §3.6 入口，v0.7；含免费十连 / 新手池半价）
+## 签名：summon_cost(pool: StringName, times: int) -> int
+## ---------------------------------------------------------------
+func summon_cost(pool: StringName, times: int) -> int:
+	return _summon_cost(pool, times)
+
+## 内部计费：与 summon() 完全同源；免费十连 → 0；新手池有半价次数 → 半价
+func _summon_cost(pool: StringName, times: int) -> int:
+	if not Data.SUMMON_POOLS.has(pool):
+		return 0
+	if times != 1 and times != 10:
+		return 0
+	if times == 10 and novice_free_pull:
+		return 0
+	var base: int = Data.SUMMON_COST_SINGLE if times == 1 else Data.SUMMON_COST_TEN
+	if pool == &"novice" and novice_pool_left > 0:
+		return roundi(float(base) * Data.SUMMON_NOVICE_DISCOUNT)
+	return base
+
+## ---------------------------------------------------------------
+## 只读：保底信息（契约 §3.6 入口，v0.7）
+## 签名：summon_pity_info(pool: StringName) -> Dictionary（返回 {progress, remain}）
+## 说明：SSR 保底计数为全局（跨池累计，出 SSR 重置），pool 参数暂不影响结果
+## ---------------------------------------------------------------
+func summon_pity_info(pool: StringName) -> Dictionary:
+	var remain: int = maxi(Data.SUMMON_PITY_SSR_LIMIT - pity, 0)
+	return { "progress": pity, "remain": remain }
+
+## ---------------------------------------------------------------
+## 只读：已拥有机娘 id 列表（契约 §3.6 入口，v0.7）
+## 签名：get_owned_mechs() -> Array
+## ---------------------------------------------------------------
+func get_owned_mechs() -> Array:
+	return _owned_mech_ids()
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
 ## 返回：{ gold, exp_balance, mechs{level, exp}, unlocked_level, first_cleared,
-##         idle_pending, idle_pending_exp, idle_last_time }（契约 §3.2，v0.6 存档形状）
+##         idle_pending, idle_pending_exp, idle_last_time, diamond, summon_ticket,
+##         fragments, owned_mechs, pity, novice_free_pull, novice_pool_left,
+##         novice_first_ten_done }（契约 §3.2，v0.7 存档形状）
 ## ---------------------------------------------------------------
 func get_save_snapshot() -> Dictionary:
 	var mechs := {}
-	for mech_id in Data.MECH_GIRLS:
+	for mech_id in _owned_mech_ids():
 		mechs[mech_id] = {
 			"level": int(mech_levels.get(mech_id, 1)),
 			"exp": int(mech_exp.get(mech_id, 0)),
@@ -401,4 +602,12 @@ func get_save_snapshot() -> Dictionary:
 		"idle_pending": roundi(idle_pending),
 		"idle_pending_exp": roundi(idle_pending_exp),
 		"idle_last_time": int(idle_last_time),
+		"diamond": diamond,
+		"summon_ticket": summon_ticket,
+		"fragments": fragments,
+		"owned_mechs": owned_mechs,
+		"pity": pity,
+		"novice_free_pull": novice_free_pull,
+		"novice_pool_left": novice_pool_left,
+		"novice_first_ten_done": novice_first_ten_done,
 	}
