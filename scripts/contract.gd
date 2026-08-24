@@ -1,4 +1,4 @@
-# 机娘放置挂机游戏 · 公共契约（代码版） v0.5
+# 机娘放置挂机游戏 · 公共契约（代码版） v0.6
 # ==================================================================
 # 作者   ：契约官（= 总指挥 A，手册第三节；只写契约与常量脚本，不写业务逻辑）
 # 依据   ：docs/契约.md（文档版，必须与本文件同步修改、同步升版本号）
@@ -14,7 +14,9 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
-#   v0.5（本次）：文档约定，无新信号/新常量——新增 Game 入口 stop_battle()、
+#   v0.6（本次）：挂机同产经验（idle_rewards_updated 改为 (gold, exp)，存档 idle_pending_exp / exp_balance）；
+#               经验分个人条 + 全局余额（新增信号 exp_balance_updated）；升级先个人条后余额补；右上角余额展示。
+#   v0.5：文档约定，无新信号/新常量——新增 Game 入口 stop_battle()、
 #               upgrade_cost(id) / upgrade_exp_cost(id)（§3.6）；阵亡机娘也得经验
 #               （§1.3 澄清）；Game 内存态 last_clear（不入档）供主界面快照显示。
 #   v0.4：挂机改"点一下收获"（新增信号 idle_rewards_updated、
@@ -31,7 +33,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.5"
+const CONTRACT_VERSION := "v0.6"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -51,7 +53,8 @@ const TERM_HP_BAR    := "hp_bar"      # 血条
 const TERM_ATK       := "atk"         # 攻击
 const TERM_HP        := "hp"          # 血量
 const TERM_UPGRADE   := "upgrade"     # 升级
-const TERM_EXP       := "exp"         # 经验（机娘经验：战斗胜利获得，升级消耗）
+const TERM_EXP       := "exp"         # 机娘个人经验条（战斗胜利获得，升级消耗）
+const TERM_EXP_BALANCE := "exp_balance"  # 全局经验余额（挂机经验随收获入账，升级补足时扣减）
 const TERM_SIGNAL    := "signal"      # 信号
 const TERM_AUTOLOAD  := "autoload"    # 自动加载
 
@@ -80,5 +83,6 @@ signal battle_tick(tick: int)                                            # 战�
 signal level_cleared(level: int, first_clear: bool)                      # 关卡通过（含是否首通）
 signal battle_failed(level: int)                                         # 战斗失败（我方全灭；UI 显示失败/重试）
 signal level_progress_changed(level: int)                                # 当前关卡变化
-signal idle_rewards_updated(amount: int)                                 # 待收获金币变化（挂机累计，含离线；收获后发 0）
-signal mech_exp_updated(id: StringName, exp: int, exp_next: int)         # 机娘经验变化（胜利得经验 / 升级消耗后）
+signal idle_rewards_updated(gold: int, exp: int)                         # 待收获金币与经验（挂机累计，含离线；收获后发 0,0）
+signal mech_exp_updated(id: StringName, exp: int, exp_next: int)         # 机娘个人经验条（战斗胜利得经验 / 升级消耗后）
+signal exp_balance_updated(balance: int)                                 # 全局经验余额（挂机收获入账 / 升级补足扣减后）
