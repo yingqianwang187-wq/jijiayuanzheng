@@ -14,10 +14,6 @@ config/name="机甲远征"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.7")
 
-[gui]
-
-theme/custom_font="res://assets/fonts/NotoSansSC-subset.ttf"
-
 [autoload]
 
 Contract="*res://scripts/contract.gd"
@@ -30,6 +26,10 @@ Game="*res://scripts/game.gd"
 window/size/viewport_width=720
 window/size/viewport_height=1280
 window/stretch/mode="canvas_items"
+
+[gui]
+
+theme/custom_font="res://assets/fonts/NotoSansSC-subset.ttf"
 
 [rendering]
 

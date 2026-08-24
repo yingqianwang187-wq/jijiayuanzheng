@@ -1,10 +1,10 @@
 # ==================================================================
 # scripts/main_ui.gd —— 主界面脚本（挂在 scenes/Main.tscn 根节点）
 # 作者   ：C（画面 + 界面）
-# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6（v0.5）、scripts/contract.gd（只读）
+# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7（v0.6）、scripts/contract.gd（只读）
 # 职责   ：主界面纯显示层。
 #          - 连接信号：gold_changed / mech_girl_updated / mech_exp_updated /
-#            level_cleared / level_progress_changed / idle_rewards_updated
+#            level_cleared / level_progress_changed / idle_rewards_updated / exp_balance_updated
 #          - 按钮只调入口（契约 §3.6）：升级 → Game.upgrade(id)；
 #            收获 → Game.collect_idle()；进入战斗 → Game.start_battle(level) + 切到 Battle.tscn；
 #            手动存档 → Save.save_game()
@@ -13,13 +13,19 @@
 # 首屏说明：本场景会从战斗场景切回（启动时那批初始信号已错过，Game 不重发），
 #          故 _ready 对 Game 公开状态做一次【只读快照】铺首屏（契约 §3.1"首屏铺底例外"），
 #          此后一切更新一律走信号。
+# 右上角余额（契约 §3.7，v0.6）：金币余额 = 已入账金币 + 待收获金币；
+#          经验余额 = 全局经验余额 + 待收获经验。随 gold_changed / idle_rewards_updated /
+#          exp_balance_updated 与首屏快照刷新；刷新时只读 Game 公开状态（信号到达时
+#          Game 数值已更新完毕，读值与信号参数一致）。
 # 机娘显示：主界面无战斗概念，机娘始终按满血显示；等级 / 攻击以信号参数为准，
 #          满血值由 Data 静态表按等级换算（与 Game._mech_stats 同一公式、同一数据源）。
 # 经验显示：exp / exp_next 以 mech_exp_updated 信号参数为准；首屏快照时 exp 读
 #          Game.mech_exp，exp_next 用只读入口 Game.upgrade_exp_cost(id)（契约 §3.6 v0.5）。
 # 升级禁用：v0.5 起用只读入口 Game.upgrade_cost(id) / Game.upgrade_exp_cost(id) 判断
-#          金币/经验是否足够（不再自行换算费用），不足时按钮置灰并在 message_label 提示原因；
-#          在 gold_changed / mech_exp_updated / mech_girl_updated 信号到达时刷新全部按钮。
+#          金币/经验是否足够（不再自行换算费用）；v0.6 经验判定 = 个人经验条 + 全局经验
+#          余额合计（与 Game.upgrade 一致）；不足时按钮置灰并在 message_label 提示原因；
+#          在 gold_changed / mech_exp_updated / mech_girl_updated / exp_balance_updated
+#          信号到达时刷新全部按钮。
 # ==================================================================
 extends Control
 
@@ -27,6 +33,8 @@ extends Control
 @onready var _gold_label: Label = $root_box/gold_label
 @onready var _idle_rewards_label: Label = $root_box/idle_row/idle_rewards_label
 @onready var _collect_button: Button = $root_box/idle_row/collect_button
+@onready var _gold_balance_label: Label = $root_box/balance_row/gold_balance_label
+@onready var _exp_balance_label: Label = $root_box/balance_row/exp_balance_label
 @onready var _level_box: HBoxContainer = $root_box/level_box
 @onready var _mech_box: VBoxContainer = $root_box/mech_box
 @onready var _last_clear_label: Label = $root_box/last_clear_label
@@ -48,6 +56,7 @@ func _ready() -> void:
 	Contract.level_cleared.connect(_on_level_cleared)
 	Contract.level_progress_changed.connect(_on_level_progress_changed)
 	Contract.idle_rewards_updated.connect(_on_idle_rewards_updated)
+	Contract.exp_balance_updated.connect(_on_exp_balance_updated)
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_enter_battle_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
@@ -57,15 +66,18 @@ func _ready() -> void:
 
 
 ## ------------------------------------------------------------------
-## 信号处理（只刷新显示；gold/经验/机娘 信号同时刷新升级按钮状态）
+## 信号处理（只刷新显示；余额 / 升级按钮随相关信号一并刷新）
 ## ------------------------------------------------------------------
 func _on_gold_changed(value: int) -> void:
 	_gold_label.text = "金币：%d" % value
+	_refresh_balance()
 	_refresh_upgrade_buttons()
 
 
-func _on_idle_rewards_updated(amount: int) -> void:
-	_idle_rewards_label.text = "待收获：%d 金币" % amount
+func _on_idle_rewards_updated(gold: int, exp: int) -> void:
+	# v0.6：待收获 = 金币 + 经验（挂机同产，参数以信号为准）
+	_idle_rewards_label.text = "待收获：金币 +%d 经验 +%d" % [gold, exp]
+	_refresh_balance()
 
 
 func _on_mech_girl_updated(id: StringName, _hp: int, atk: int, level: int) -> void:
@@ -76,6 +88,12 @@ func _on_mech_girl_updated(id: StringName, _hp: int, atk: int, level: int) -> vo
 
 func _on_mech_exp_updated(id: StringName, exp: int, exp_next: int) -> void:
 	_render_mech_exp(id, exp, exp_next)
+	_refresh_upgrade_buttons()
+
+
+func _on_exp_balance_updated(_balance: int) -> void:
+	# v0.6：全局经验余额变化（挂机收获入账 / 升级补足扣减）
+	_refresh_balance()
 	_refresh_upgrade_buttons()
 
 
@@ -98,7 +116,7 @@ func _on_level_progress_changed(level: int) -> void:
 ## 按钮（只调契约 §3.6 入口）
 ## ------------------------------------------------------------------
 func _on_collect_pressed() -> void:
-	# 结果由 gold_changed / idle_rewards_updated 信号回发，不依赖返回值
+	# 结果由 gold_changed / exp_balance_updated / idle_rewards_updated 信号回发，不依赖返回值
 	Game.collect_idle()
 
 
@@ -114,6 +132,30 @@ func _on_enter_battle_pressed() -> void:
 func _on_save_pressed() -> void:
 	Save.save_game()
 	_message_label.text = "已保存"
+
+
+## ------------------------------------------------------------------
+## 右上角余额（契约 §3.7，v0.6）：金币余额 = 已入账 + 待收获；经验余额 = 全局余额 + 待收获
+## 刷新时机：gold_changed / idle_rewards_updated / exp_balance_updated / 首屏快照
+## ------------------------------------------------------------------
+func _refresh_balance() -> void:
+	_gold_balance_label.text = "金币 %s (+%d)" % [_format_num(int(Game.gold)), roundi(Game.idle_pending)]
+	_exp_balance_label.text = "经验 %s (+%d)" % [_format_num(int(Game.exp_balance)), roundi(Game.idle_pending_exp)]
+
+
+## 千分位格式化（纯显示，不修改任何数值）
+func _format_num(n: int) -> String:
+	var s := str(abs(n))
+	var out := ""
+	var count := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		count += 1
+		if count % 3 == 0 and i > 0:
+			out = "," + out
+	if n < 0:
+		out = "-" + out
+	return out
 
 
 ## ------------------------------------------------------------------
@@ -177,7 +219,7 @@ func _build_mech_rows() -> void:
 
 
 func _on_upgrade_pressed(mech_id: StringName) -> void:
-	# 结果由 gold_changed / mech_girl_updated / mech_exp_updated 信号回发，不依赖返回值
+	# 结果由 gold_changed / mech_girl_updated / mech_exp_updated / exp_balance_updated 信号回发
 	Game.upgrade(mech_id)
 
 
@@ -200,9 +242,10 @@ func _render_mech_exp(id: StringName, exp: int, exp_next: int) -> void:
 
 
 ## ------------------------------------------------------------------
-## 升级按钮状态（契约 §3.6 v0.5）：用只读入口判断金币/经验是否足够，
+## 升级按钮状态（契约 §3.6 v0.5 / v0.6）：用只读入口判断金币/经验是否足够，
+## 经验判定 = 个人经验条 + 全局经验余额合计（与 Game.upgrade 一致）；
 ## 不足则置灰并在 message_label 提示原因；够则恢复可用并清空原因提示。
-## 判断所需当前金币/经验只读 Game 公开状态（不修改任何数值）。
+## 判断所需当前数值只读 Game 公开状态（不修改任何数值）。
 ## ------------------------------------------------------------------
 func _refresh_upgrade_buttons() -> void:
 	var gold_now: int = int(Game.gold)
@@ -212,7 +255,7 @@ func _refresh_upgrade_buttons() -> void:
 		var row: Dictionary = _mech_rows[id]
 		var gold_cost: int = Game.upgrade_cost(id)
 		var exp_cost: int = Game.upgrade_exp_cost(id)
-		var exp_now: int = int(Game.mech_exp.get(id, 0))
+		var exp_now: int = int(Game.mech_exp.get(id, 0)) + int(Game.exp_balance)
 		var lack_gold: bool = gold_now < gold_cost
 		var lack_exp: bool = exp_now < exp_cost
 		row.upgrade_button.disabled = lack_gold or lack_exp
@@ -233,13 +276,15 @@ func _refresh_upgrade_buttons() -> void:
 
 ## ------------------------------------------------------------------
 ## 首屏只读快照（契约 §3.1"首屏铺底例外"，见文件头"首屏说明"）：
-## 金币 / 待收获 / 解锁进度 / 机娘等级与经验 / 上次通关消息均来自 Game 公开状态
+## 金币 / 待收获（金币+经验）/ 余额 / 解锁进度 / 机娘等级与经验 / 上次通关消息
+## 均来自 Game 公开状态
 ## ------------------------------------------------------------------
 func _seed_initial_state() -> void:
 	_unlocked_level = clampi(int(Game.unlocked_level), 1, Data.MAX_LEVEL)
 	_selected_level = _unlocked_level
 	_gold_label.text = "金币：%d" % Game.gold
-	_idle_rewards_label.text = "待收获：%d 金币" % roundi(Game.idle_pending)
+	_idle_rewards_label.text = "待收获：金币 +%d 经验 +%d" % [roundi(Game.idle_pending), roundi(Game.idle_pending_exp)]
+	_refresh_balance()
 	for id in _mech_rows:
 		var level: int = int(Game.mech_levels.get(id, 1))
 		var cfg: Dictionary = Data.MECH_GIRLS.get(id, {})

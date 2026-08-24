@@ -22,10 +22,15 @@ var mech_levels: Dictionary = {}                # { StringName id: int level }
 var mech_exp: Dictionary = {}                   # { StringName id: int exp } 机娘经验（胜利获得，升级消耗）
 var cleared_levels: Dictionary = {}             # { int level: true } 已首通关卡（内存态）
 
-## 挂机"点一下收获"（契约 §1.2 / §3.2，v0.4）
+## 挂机"点一下收获，同产金币+经验"（契约 §1.2 / §3.2，v0.4 / v0.6）
 var idle_pending: float = 0.0                   # 待收获金币（浮点精确累计，显示/入账取整）
+var idle_pending_exp: float = 0.0               # 待收获经验（= 待收获金币 × Data.IDLE_EXP_RATIO，v0.6）
 var idle_last_time: int = 0                     # 上次结算时间戳（unix 秒；在线每秒推进，离线按"现在-上次"补入）
 var _idle_save_accum: float = 0.0               # 节流存档计时（秒）
+
+## 全局经验余额（契约 §1.2 / §3.2，v0.6）：只接收挂机经验（随"收获"入账），
+## 战斗经验进个人条；升级时个人条不足自动从余额补
+var exp_balance: int = 0
 
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
@@ -52,10 +57,11 @@ func _ready() -> void:
 	_emit_initial_state()
 
 ## 读档初始化（契约 §3.6：Game → Save.load_game；失败由 Save 返回默认值）
-## 含挂机离线补入：按"现在 - 上次结算时间"× 每秒产出累计待收获（契约 §1.2，v0.4）
+## 含挂机离线补入：按"现在 - 上次结算时间"× 每秒产出累计待收获金币与经验（契约 §1.2，v0.4 / v0.6）
 func _load_initial_state() -> void:
 	var data: Dictionary = Save.load_game()
 	gold = maxi(int(data.get("gold", 0)), 0)
+	exp_balance = maxi(int(data.get("exp_balance", 0)), 0)
 	unlocked_level = clampi(int(data.get("unlocked_level", 1)), 1, Data.MAX_LEVEL)
 	mech_levels.clear()
 	mech_exp.clear()
@@ -73,13 +79,15 @@ func _load_initial_state() -> void:
 	cleared_levels.clear()
 	for l in data.get("first_cleared", []):
 		cleared_levels[int(l)] = true
-	# 挂机待收获：读档值 + 离线时长补入（离线期间照常累计）
+	# 挂机待收获（金币+经验）：读档值 + 离线时长补入（离线期间照常累计）
 	idle_pending = maxf(float(data.get("idle_pending", 0)), 0.0)
+	idle_pending_exp = maxf(float(data.get("idle_pending_exp", 0)), 0.0)
 	idle_last_time = int(data.get("idle_last_time", int(Time.get_unix_time_from_system())))
 	var now: int = int(Time.get_unix_time_from_system())
 	var elapsed: float = maxf(float(now - idle_last_time), 0.0)
 	if elapsed > 0.0:
 		idle_pending += elapsed * _idle_gold_rate()
+		idle_pending_exp += elapsed * _idle_gold_rate() * Data.IDLE_EXP_RATIO
 		idle_last_time = now
 
 ## 建节拍计时器：挂机常驻，战斗按需启动
@@ -96,15 +104,16 @@ func _setup_timers() -> void:
 	add_child(battle_timer)
 
 ## 发初始状态信号（gold_changed / mech_girl_updated / mech_exp_updated /
-## level_progress_changed / idle_rewards_updated）
+## exp_balance_updated / level_progress_changed / idle_rewards_updated）
 func _emit_initial_state() -> void:
 	Contract.gold_changed.emit(gold)
 	for mech_id in Data.MECH_GIRLS:
 		var s := _mech_stats(mech_id)
 		Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
 		Contract.mech_exp_updated.emit(mech_id, int(mech_exp.get(mech_id, 0)), _upgrade_exp_cost(mech_id, int(mech_levels.get(mech_id, 1))))
+	Contract.exp_balance_updated.emit(exp_balance)
 	Contract.level_progress_changed.emit(unlocked_level)
-	Contract.idle_rewards_updated.emit(roundi(idle_pending))
+	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
 
 ## 由 Data 基础值 + 当前等级计算机娘完整属性（hp 为满血）
 func _mech_stats(mech_id: StringName) -> Dictionary:
@@ -130,9 +139,11 @@ func _upgrade_exp_cost(mech_id: StringName, current_level: int) -> int:
 	return roundi(float(Data.UPGRADE_EXP_BASE) * pow(float(Data.UPGRADE_EXP_GROWTH), float(current_level - 1)))
 
 ## ---------------------------------------------------------------
-## 升级机娘（契约 §3.6 入口）：扣金币 + 机娘经验 → 升等级 → 提攻血 → 发信号
+## 升级机娘（契约 §3.6 入口）：扣金币 + 经验 → 升等级 → 提攻血 → 发信号
 ## 签名：upgrade(mech_id: StringName)
-## 规则：金币与经验都够才扣（经验余额保留）；不足则忽略（v0.4 双消耗）
+## 规则（v0.6 双路经验）：经验先扣个人经验条（mech_exp[id]），不足部分自动从
+## 全局经验余额（exp_balance）补；两者合计都不足则失败（不扣金币、不发任何信号）。
+## 金币不足同样失败。
 ## ---------------------------------------------------------------
 func upgrade(mech_id: StringName) -> void:
 	if not Data.MECH_GIRLS.has(mech_id):
@@ -141,15 +152,26 @@ func upgrade(mech_id: StringName) -> void:
 	var current_exp: int = int(mech_exp.get(mech_id, 0))
 	var gold_cost: int = _upgrade_cost(mech_id, current_level)
 	var exp_cost: int = _upgrade_exp_cost(mech_id, current_level)
-	if gold < gold_cost or current_exp < exp_cost:
+	# 经验判定：个人条 + 余额合计是否够
+	var total_exp: int = current_exp + exp_balance
+	if gold < gold_cost or total_exp < exp_cost:
 		return
+	# 扣经验：先个人条，不足从余额补
+	var exp_from_personal: int = mini(current_exp, exp_cost)
+	var exp_from_balance: int = exp_cost - exp_from_personal
+	mech_exp[mech_id] = current_exp - exp_from_personal
+	if exp_from_balance > 0:
+		exp_balance -= exp_from_balance
+	# 扣金币
 	gold -= gold_cost
 	mech_levels[mech_id] = current_level + 1
-	mech_exp[mech_id] = current_exp - exp_cost
 	Contract.gold_changed.emit(gold)
 	var s := _mech_stats(mech_id)
 	Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
 	Contract.mech_exp_updated.emit(mech_id, int(mech_exp[mech_id]), _upgrade_exp_cost(mech_id, current_level + 1))
+	# 若动用了余额，通知余额变化（契约 §3.5 v0.6）
+	if exp_from_balance > 0:
+		Contract.exp_balance_updated.emit(exp_balance)
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -288,32 +310,39 @@ func _resolve_defeat() -> void:
 	battle_timer.stop()
 	Contract.battle_failed.emit(int(battle.level))
 
-## 挂机节拍：每秒按速率累入"待收获金币"并发 idle_rewards_updated（契约 §1.2 / §3.5，v0.4）
-## 金币不自动进账，等待玩家点收获一次性领取；idle_last_time 同步推进供离线补算。
+## 挂机节拍：每秒累入"待收获金币 + 待收获经验"并发 idle_rewards_updated（契约 §1.2 / §3.5，v0.4 / v0.6）
+## 金币、经验都不自动进账，等待玩家点收获一次性领取（金币入账、经验入全局余额）；
+## idle_last_time 同步推进供离线补算。
 func _on_idle_tick() -> void:
 	var rate: float = _idle_gold_rate()
 	idle_pending += rate
+	idle_pending_exp += rate * Data.IDLE_EXP_RATIO
 	idle_last_time = int(Time.get_unix_time_from_system())
-	Contract.idle_rewards_updated.emit(roundi(idle_pending))
-	# 待收获金额 + 时间戳自动存档节流（契约 §3.2 / §3.6：每 5 秒一次，间隔数值在 Data）
+	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
+	# 待收获金额（金币+经验）+ 时间戳自动存档节流（契约 §3.2 / §3.6：每 5 秒一次，间隔数值在 Data）
 	_idle_save_accum += Data.IDLE_TICK_INTERVAL
 	if _idle_save_accum >= Data.SAVE_THROTTLE_INTERVAL:
 		_idle_save_accum = 0.0
 		Save.save_game()
 
 ## ---------------------------------------------------------------
-## 领取待收获金币（契约 §3.6 入口，v0.4）：入账 → 清零 → 更新时间戳 →
-## 发 gold_changed + idle_rewards_updated(0) → 自动存档
+## 领取待收获（契约 §3.6 入口，v0.6）：金币入账、经验入全局经验余额 → 清零 →
+## 更新时间戳 → 发 gold_changed + exp_balance_updated + idle_rewards_updated(0,0) → 自动存档
 ## 签名：collect_idle()
 ## ---------------------------------------------------------------
 func collect_idle() -> void:
 	var amount: int = roundi(idle_pending)
+	var exp_amount: int = roundi(idle_pending_exp)
 	if amount > 0:
 		gold += amount
 		Contract.gold_changed.emit(gold)
+	if exp_amount > 0:
+		exp_balance += exp_amount
+		Contract.exp_balance_updated.emit(exp_balance)
 	idle_pending = 0.0
+	idle_pending_exp = 0.0
 	idle_last_time = int(Time.get_unix_time_from_system())
-	Contract.idle_rewards_updated.emit(0)
+	Contract.idle_rewards_updated.emit(0, 0)
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -349,8 +378,8 @@ func _idle_gold_rate() -> float:
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
-## 返回：{ gold, mechs{level, exp}, unlocked_level, first_cleared,
-##         idle_pending, idle_last_time }（契约 §3.2，v0.4 存档形状）
+## 返回：{ gold, exp_balance, mechs{level, exp}, unlocked_level, first_cleared,
+##         idle_pending, idle_pending_exp, idle_last_time }（契约 §3.2，v0.6 存档形状）
 ## ---------------------------------------------------------------
 func get_save_snapshot() -> Dictionary:
 	var mechs := {}
@@ -365,9 +394,11 @@ func get_save_snapshot() -> Dictionary:
 	first_cleared.sort()
 	return {
 		"gold": gold,
+		"exp_balance": exp_balance,
 		"mechs": mechs,
 		"unlocked_level": unlocked_level,
 		"first_cleared": first_cleared,
 		"idle_pending": roundi(idle_pending),
+		"idle_pending_exp": roundi(idle_pending_exp),
 		"idle_last_time": int(idle_last_time),
 	}

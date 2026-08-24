@@ -19,17 +19,19 @@ const SAVE_PATH := "user://save.json"
 
 ## 写档：把当前状态（来自 Game 快照）写入 user://save.json
 ## 签名：save_game()（契约 §3.2 / §3.6，无参数；UI / Game 均可调用）
-## 存档形状：{ gold, mechs{level, exp}, unlocked_level, first_cleared,
-##            idle_pending, idle_last_time }（契约 §3.2，v0.4）
+## 存档形状：{ gold, exp_balance, idle_pending, idle_pending_exp, idle_last_time,
+##            unlocked_level, first_cleared, mechs{level, exp} }（契约 §3.2，v0.6）
 func save_game() -> void:
 	var snapshot: Dictionary = Game.get_save_snapshot()
 	var save_dict := {
 		"version": Contract.CONTRACT_VERSION,
 		"gold": int(snapshot.get("gold", 0)),
+		"exp_balance": maxi(int(snapshot.get("exp_balance", 0)), 0),
 		"unlocked_level": int(snapshot.get("unlocked_level", 1)),
 		"mechs": {},
 		"first_cleared": [],
 		"idle_pending": maxi(int(snapshot.get("idle_pending", 0)), 0),
+		"idle_pending_exp": maxi(int(snapshot.get("idle_pending_exp", 0)), 0),
 		"idle_last_time": int(snapshot.get("idle_last_time", 0)),
 	}
 	var mechs: Dictionary = snapshot.get("mechs", {})
@@ -51,10 +53,11 @@ func save_game() -> void:
 	file.store_string(JSON.stringify(save_dict))
 	file.close()
 
-## 读档：返回 { gold: int, mechs: Dictionary, unlocked_level: int, first_cleared: Array,
-##            idle_pending: int, idle_last_time: int }（契约 §3.2，v0.4 存档形状）
+## 读档：返回 { gold, exp_balance, mechs, unlocked_level, first_cleared,
+##            idle_pending, idle_pending_exp, idle_last_time }（契约 §3.2，v0.6 存档形状）
 ## 失败（文件缺失 / 损坏 / 版本不符 / 字段非法）一律返回默认值并继续运行，不报错崩溃。
-## 钳制：exp ≥ 0、idle_pending ≥ 0、idle_last_time 非法（非正数/非数字）取当前时间。
+## 钳制：exp ≥ 0、exp_balance ≥ 0、idle_pending ≥ 0、idle_pending_exp ≥ 0、
+##       idle_last_time 非法（非正数/非数字）取当前时间。
 ## 签名：load_game() -> Dictionary
 func load_game() -> Dictionary:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -71,18 +74,21 @@ func load_game() -> Dictionary:
 	# 版本不符 → 默认值（契约 §3.2）
 	if parsed_dict.get("version", "") != Contract.CONTRACT_VERSION:
 		return _default_data()
-	if (not parsed_dict.has("gold") or not parsed_dict.has("mechs") or not parsed_dict.has("unlocked_level")
-			or not parsed_dict.has("first_cleared") or not parsed_dict.has("idle_pending") or not parsed_dict.has("idle_last_time")):
+	if (not parsed_dict.has("gold") or not parsed_dict.has("exp_balance") or not parsed_dict.has("mechs")
+			or not parsed_dict.has("unlocked_level") or not parsed_dict.has("first_cleared")
+			or not parsed_dict.has("idle_pending") or not parsed_dict.has("idle_pending_exp")
+			or not parsed_dict.has("idle_last_time")):
 		return _default_data()
 	var result := _default_data()
 	result["gold"] = int(parsed_dict["gold"])
+	result["exp_balance"] = maxi(int(parsed_dict["exp_balance"]), 0)
 	result["unlocked_level"] = int(parsed_dict["unlocked_level"])
 	var mechs: Variant = parsed_dict["mechs"]
 	if mechs is Dictionary:
 		for key in mechs:
 			var entry: Variant = mechs[key]
 			var mech_id := StringName(str(key))
-			# 只认 Data 中存在的机娘；等级钳到 >= 1、经验钳到 >= 0
+			# 只认 Data 中存在的机娘；等级钳到 >= 1、个人经验钳到 >= 0
 			if entry is Dictionary and Data.MECH_GIRLS.has(mech_id):
 				result["mechs"][mech_id] = {
 					"level": maxi(int(entry.get("level", 1)), 1),
@@ -95,25 +101,28 @@ func load_game() -> Dictionary:
 			# 只认 1..MAX_LEVEL 的关卡
 			if level >= 1 and level <= Data.MAX_LEVEL:
 				result["first_cleared"].append(level)
-	# 待收获金币：钳到 >= 0
+	# 待收获金币 / 待收获经验 / 全局经验余额：钳到 >= 0
 	result["idle_pending"] = maxi(int(parsed_dict["idle_pending"]), 0)
+	result["idle_pending_exp"] = maxi(int(parsed_dict["idle_pending_exp"]), 0)
 	# 上次结算时间戳：非法（非正数）取当前时间
 	var idle_last_time: Variant = parsed_dict["idle_last_time"]
 	if (idle_last_time is float or idle_last_time is int) and int(idle_last_time) > 0:
 		result["idle_last_time"] = int(idle_last_time)
 	return result
 
-## 默认档数据（契约 §3.2）：金币 0、机娘取 Data 初始配置（Lv1、经验 0）、解锁关卡 1、
-## first_cleared 为空、idle_pending 为 0、idle_last_time 取当前时间
+## 默认档数据（契约 §3.2）：金币 0、全局经验余额 0、机娘取 Data 初始配置（Lv1、个人经验 0）、
+## 解锁关卡 1、first_cleared 为空、待收获金币/经验 0、idle_last_time 取当前时间
 func _default_data() -> Dictionary:
 	var mechs := {}
 	for mech_id in Data.MECH_GIRLS:
 		mechs[mech_id] = { "level": 1, "exp": 0 }
 	return {
 		"gold": 0,
+		"exp_balance": 0,
 		"mechs": mechs,
 		"unlocked_level": 1,
 		"first_cleared": [],
 		"idle_pending": 0,
+		"idle_pending_exp": 0,
 		"idle_last_time": int(Time.get_unix_time_from_system()),
 	}
