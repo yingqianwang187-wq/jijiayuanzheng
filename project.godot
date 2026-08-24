@@ -14,6 +14,10 @@ config/name="机甲远征"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.7")
 
+[gui]
+
+theme/custom_font="res://assets/fonts/NotoSansSC-subset.ttf"
+
 [autoload]
 
 Contract="*res://scripts/contract.gd"
