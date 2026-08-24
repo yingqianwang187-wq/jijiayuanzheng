@@ -1,4 +1,4 @@
-# 机娘放置挂机游戏 · 公共契约（代码版） v0.6
+# 机娘放置挂机游戏 · 公共契约（代码版） v0.7
 # ==================================================================
 # 作者   ：契约官（= 总指挥 A，手册第三节；只写契约与常量脚本，不写业务逻辑）
 # 依据   ：docs/契约.md（文档版，必须与本文件同步修改、同步升版本号）
@@ -14,6 +14,9 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.7（阶段 1 抽卡）：钻石货币（信号 diamond_changed）；抽卡系统（信号 gacha_result、
+#               入口 summon/summon_cost/summon_pity_info/get_owned_mechs）；新机娘与卡池数据；
+#               碎片计数（信号 fragments_updated）；拥有与上阵（信号 owned_mechs_updated）。
 #   v0.6（本次）：挂机同产经验（idle_rewards_updated 改为 (gold, exp)，存档 idle_pending_exp / exp_balance）；
 #               经验分个人条 + 全局余额（新增信号 exp_balance_updated）；升级先个人条后余额补；右上角余额展示。
 #   v0.5：文档约定，无新信号/新常量——新增 Game 入口 stop_battle()、
@@ -33,7 +36,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.6"
+const CONTRACT_VERSION := "v0.7"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -62,6 +65,9 @@ const TERM_AUTOLOAD  := "autoload"    # 自动加载
 const TERM_DEF       := "def"         # 防御（属性四维之一）
 const TERM_SPD       := "spd"         # 速度（属性四维之一，出手排序依据）
 const TERM_DIAMOND   := "diamond"     # 钻石（阶段 1 起用）
+const TERM_FRAGMENT  := "fragment"    # 碎片（重复机娘转化所得，升星素材）
+const TERM_SUMMON    := "summon"      # 抽卡
+const TERM_SUMMON_TICKET := "summon_ticket"  # 召唤券（等价钻石，阶段 2 启用来源）
 const TERM_PAID_COIN := "paid_coin"   # 付费币（阶段 4 起用）
 
 # ------------------------------------------------------------------
@@ -86,3 +92,7 @@ signal level_progress_changed(level: int)                                # 当�
 signal idle_rewards_updated(gold: int, exp: int)                         # 待收获金币与经验（挂机累计，含离线；收获后发 0,0）
 signal mech_exp_updated(id: StringName, exp: int, exp_next: int)         # 机娘个人经验条（战斗胜利得经验 / 升级消耗后）
 signal exp_balance_updated(balance: int)                                 # 全局经验余额（挂机收获入账 / 升级补足扣减后）
+signal diamond_changed(value: int)                                        # 钻石变化（首通奖励 / 抽卡消耗后）
+signal fragments_updated(id: StringName, count: int)                      # 某机娘碎片变化（抽到重复机娘转化后）
+signal gacha_result(entries: Array)                                       # 抽卡结果（每项 {id, rarity, is_new, fragments}）
+signal owned_mechs_updated(ids: Array)                                    # 已拥有机娘 id 列表变化（抽到新机娘后）
