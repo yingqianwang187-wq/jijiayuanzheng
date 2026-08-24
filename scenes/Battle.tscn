@@ -1,0 +1,85 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/battle_view.gd" id="1_script"]
+
+[node name="Battle" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.09, 0.11, 0.15, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 10
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "战斗"
+horizontal_alignment = 1
+
+[node name="tick_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "第 0 轮"
+horizontal_alignment = 1
+
+[node name="my_side_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 我方机娘 ——"
+horizontal_alignment = 1
+
+[node name="my_side_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="enemy_side_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 敌方 ——"
+horizontal_alignment = 1
+
+[node name="enemy_side_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="status_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "战斗中…"
+horizontal_alignment = 1
+
+[node name="button_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="start_button" type="Button" parent="root_box/button_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "开始战斗"
+
+[node name="retry_button" type="Button" parent="root_box/button_row"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+text = "重试"
+
+[node name="back_button" type="Button" parent="root_box/button_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "返回主界面"

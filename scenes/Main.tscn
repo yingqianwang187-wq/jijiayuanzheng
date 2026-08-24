@@ -1,0 +1,99 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/main_ui.gd" id="1_script"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.09, 0.11, 0.15, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 10
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "机甲远征"
+horizontal_alignment = 1
+
+[node name="gold_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "金币：0"
+horizontal_alignment = 1
+
+[node name="idle_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="idle_rewards_label" type="Label" parent="root_box/idle_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "待收获：0 金币"
+horizontal_alignment = 1
+
+[node name="collect_button" type="Button" parent="root_box/idle_row"]
+layout_mode = 2
+text = "收获"
+
+[node name="level_section_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 关卡选择 ——"
+horizontal_alignment = 1
+
+[node name="level_box" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="mech_section_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 机娘小队 ——"
+horizontal_alignment = 1
+
+[node name="mech_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="last_clear_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="message_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="bottom_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="enter_battle_button" type="Button" parent="root_box/bottom_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "进入战斗"
+
+[node name="save_button" type="Button" parent="root_box/bottom_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "手动存档"
