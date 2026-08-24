@@ -42,13 +42,27 @@ var novice_free_pull: bool = true                 # 开局免费十连是否可�
 var novice_pool_left: int = 5                     # 新手池半价剩余次数（初始 = Data.SUMMON_NOVICE_POOL_LEFT = 5）
 var novice_first_ten_done: bool = false           # 新手池首十连保底（必出星澜）是否已触发
 
+## 战斗 2.0 状态（契约 §3.9，v0.8）
+var formation: Array = []                         # 当前阵型：[{id, row, col}]（3x3 九宫格选 ≤5）
+var formation_presets: Dictionary = {}            # { index: Array } 阵型预设（2~3 套）
+var level_stars: Dictionary = {}                  # { int level: int star } 每关最高星级（1~3）
+var cleared_boss: Dictionary = {}                 # { int level: true } 已通关的章节 BOSS 关
+var chapter_chest_claimed: bool = false           # 章节星数宝箱是否已领（第 1 章；不入契约字段清单，防重复领取）
+var accelerate: bool = false                      # 战斗 2x 加速开关（内存态，不入档）
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
 	"tick": 0,
 	"active": false,
-	"mechs": [],    # [{ id, hp, atk, def, spd, level }]
-	"enemies": [],  # [{ id, hp, atk, def, spd }]
+	"wave": 1,
+	"total_waves": 1,
+	"mechs": [],        # 我方单位 [{ side, id, name, class, row, col, hp, max_hp, atk, def, spd, energy, cd_1, cd_2, statuses, buffs, shield, taunt_turns, dodge_crit_ready, alive, dmg_dealt, heal_done, level, cfg }]
+	"enemies": [],      # 当前波敌方单位（结构同上 + tier/ultimate）
+	"pending_waves": [],# 未出场的敌方波配置（LEVELS[level].waves 的副本，已出场波移除）
+	"deaths": 0,        # 我方阵亡数（星级评价用）
+	"mech_ids": [],     # 我方上阵机娘 id（经验发放用）
+	"accelerate": false,
 }
 
 var idle_timer: Timer
@@ -118,10 +132,56 @@ func _load_initial_state() -> void:
 	idle_last_time = int(data.get("idle_last_time", int(Time.get_unix_time_from_system())))
 	var now: int = int(Time.get_unix_time_from_system())
 	var elapsed: float = maxf(float(now - idle_last_time), 0.0)
-	if elapsed > 0.0:
-		idle_pending += elapsed * _idle_gold_rate()
-		idle_pending_exp += elapsed * _idle_gold_rate() * Data.IDLE_EXP_RATIO
+	# 离线收益上限 12 小时（设计文档 §8.4 / 附录 B，v0.14）
+	var elapsed_capped: float = minf(elapsed, Data.IDLE_OFFLINE_CAP_HOURS * 3600.0)
+	if elapsed_capped > 0.0:
+		idle_pending += elapsed_capped * _idle_gold_rate()
+		idle_pending_exp += elapsed_capped * _idle_gold_rate() * Data.IDLE_EXP_RATIO
 		idle_last_time = now
+	# 战斗 2.0 状态恢复（契约 §3.9，v0.8）
+	formation = []
+	var formation_data: Variant = data.get("formation", [])
+	if formation_data is Array:
+		for slot in formation_data:
+			if slot is Dictionary and owned_mechs.has(StringName(str(slot.get("id", "")))):
+				formation.append({
+					"id": StringName(str(slot.get("id", ""))),
+					"row": clampi(int(slot.get("row", 0)), 0, 2),
+					"col": clampi(int(slot.get("col", 0)), 0, 2),
+				})
+	if formation.size() < 2:
+		_ensure_default_formation()
+	formation_presets.clear()
+	var presets_data: Variant = data.get("formation_presets", {})
+	if presets_data is Dictionary:
+		for key in presets_data:
+			var preset: Variant = presets_data[key]
+			if preset is Array:
+				var preset_result: Array = []
+				for slot in preset:
+					if slot is Dictionary and owned_mechs.has(StringName(str(slot.get("id", "")))):
+						preset_result.append({
+							"id": StringName(str(slot.get("id", ""))),
+							"row": clampi(int(slot.get("row", 0)), 0, 2),
+							"col": clampi(int(slot.get("col", 0)), 0, 2),
+						})
+				if not preset_result.is_empty():
+					formation_presets[str(key)] = preset_result
+	level_stars.clear()
+	var stars_data: Variant = data.get("level_stars", {})
+	if stars_data is Dictionary:
+		for key in stars_data:
+			var level := int(key)
+			if level >= 1 and level <= Data.MAX_LEVEL:
+				level_stars[level] = clampi(int(stars_data[key]), 1, 3)
+	cleared_boss.clear()
+	var boss_data: Variant = data.get("cleared_boss", {})
+	if boss_data is Dictionary:
+		for key in boss_data:
+			var level := int(key)
+			if level >= 1 and level <= Data.MAX_LEVEL:
+				cleared_boss[level] = true
+	chapter_chest_claimed = bool(data.get("chapter_chest_claimed", false))
 
 ## 建节拍计时器：挂机常驻，战斗按需启动
 func _setup_timers() -> void:
@@ -149,6 +209,7 @@ func _emit_initial_state() -> void:
 	Contract.level_progress_changed.emit(unlocked_level)
 	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
 	Contract.owned_mechs_updated.emit(_owned_mech_ids())
+	Contract.formation_changed.emit(formation)
 
 ## 由 Data 基础值 + 当前等级计算机娘完整属性（hp 为满血）
 func _mech_stats(mech_id: StringName) -> Dictionary:
@@ -210,115 +271,754 @@ func upgrade(mech_id: StringName) -> void:
 	Save.save_game()
 
 ## ---------------------------------------------------------------
-## 进入关卡，开始自动节拍战斗（契约 §3.6 入口）
+## 进入关卡，开始自动节拍战斗（契约 §3.6 / §3.9 入口，v0.8 战斗 2.0）
 ## 签名：start_battle(level: int)
 ## 校验：仅接受已解锁的合法关卡（1..MAX_LEVEL 且 <= unlocked_level）
+## 流程：按阵型布阵（formation，空则自动生成）→ 敌方按模板排阵 → 应用开局被动 →
+##       发初始信号 → 启动节拍
 ## ---------------------------------------------------------------
 func start_battle(level: int) -> void:
 	if not (level is int):
 		return
 	if level < 1 or level > Data.MAX_LEVEL or level > unlocked_level:
 		return
+	if formation.size() < 2:
+		_ensure_default_formation()
 	battle = {
 		"level": level,
 		"tick": 0,
 		"active": true,
+		"wave": 1,
+		"total_waves": Data.LEVELS[level].waves.size(),
 		"mechs": [],
 		"enemies": [],
+		"pending_waves": [],
+		"deaths": 0,
+		"mech_ids": [],
+		"accelerate": accelerate,
 	}
-	# 上阵 = 已拥有机娘的前 ≤5 位（按 Data.MECH_GIRLS 声明顺序；契约 §1.2 / §3.8 v0.7）
-	for mech_id in Data.MECH_GIRLS:
-		if not owned_mechs.has(mech_id):
+	# 我方：按阵型布阵（九宫格 3x3 选 ≤5 格；位置只影响接敌顺序，无属性加成）
+	var used_ids := {}
+	for slot in formation:
+		var mech_id := StringName(str(slot.id))
+		if not owned_mechs.has(mech_id) or used_ids.has(mech_id):
 			continue
-		if battle.mechs.size() >= 5:
-			break
-		var s := _mech_stats(mech_id)
-		battle.mechs.append({ "id": mech_id, "hp": s.hp, "atk": s.atk, "def": s.def, "spd": s.spd, "level": s.level })
-	for e in Data.LEVELS[level].enemies:
-		battle.enemies.append({ "id": e.id, "hp": e.hp, "atk": e.atk, "def": e.def, "spd": e.spd })
-	# 立即发初始战斗状态（节拍 0 / 我方满血 / 敌方满血），供 battle_view 首次显示
+		used_ids[mech_id] = true
+		battle.mechs.append(_build_mech_unit(mech_id, int(slot.row), int(slot.col)))
+		battle.mech_ids.append(mech_id)
+	# 敌方波次配置副本
+	battle.pending_waves = []
+	for wave_cfg in Data.LEVELS[level].waves:
+		battle.pending_waves.append(wave_cfg)
+	# 生成第一波
+	_spawn_wave(battle.pending_waves[0])
+	battle.pending_waves.remove_at(0)
+	# 开局被动（护盾/光环/偷袭）
+	_apply_passive_battle_start()
+	# 立即发初始战斗状态（节拍 0 / 我方满血 / 敌方满血 / 波次）
 	Contract.battle_tick.emit(0)
 	for m in battle.mechs:
-		Contract.mech_girl_updated.emit(m.id, m.hp, m.atk, m.level)
+		Contract.mech_girl_updated.emit(m.id, int(m.hp), int(m.atk), int(m.level))
+		Contract.energy_changed.emit(&"mech", m.id, int(m.energy))
 	for e in battle.enemies:
-		Contract.enemy_updated.emit(e.id, e.hp)
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, int(e.energy))
+	Contract.wave_changed.emit(battle.wave, battle.total_waves)
+	_apply_battle_timer_speed()
 	battle_timer.start()
 
-## 战斗节拍：每秒 1 轮（契约 §1.3 / §3.4）
+## 阵型为空时自动生成：拥有的前 ≤5 位排 3-2 布局（前排 3 格 + 中排 2 格）
+func _ensure_default_formation() -> void:
+	var ids := _owned_mech_ids()
+	formation = []
+	var layout := [ [0, 0], [0, 1], [0, 2], [1, 0], [1, 1] ]
+	for i in mini(ids.size(), 5):
+		formation.append({ "id": ids[i], "row": layout[i][0], "col": layout[i][1] })
+
+## 构建我方单位（引用 Data 技能配置）
+func _build_mech_unit(mech_id: StringName, row: int, col: int) -> Dictionary:
+	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
+	var s := _mech_stats(mech_id)
+	return {
+		"side": &"mech", "id": mech_id, "name": str(cfg.name), "class": str(cfg.class),
+		"row": row, "col": col, "level": int(s.level),
+		"hp": int(s.hp), "max_hp": int(s.hp), "atk": int(s.atk), "def": int(s.def), "spd": int(s.spd),
+		"energy": 0, "cd_1": 0, "cd_2": 0,
+		"statuses": {}, "buffs": {}, "shield": 0, "taunt_turns": 0, "dodge_crit_ready": false,
+		"alive": true, "dmg_dealt": 0, "heal_done": 0,
+		"passive": cfg.passive, "skills": cfg.skills, "ultimate": cfg.ultimate,
+	}
+
+## 生成一波敌方单位（AI 排阵：tank 前排 row0，其余 row1/row2，同排 col 依次分配）
+func _spawn_wave(wave_cfg: Array) -> void:
+	battle.enemies = []
+	var row0_col := 0
+	var row1_col := 0
+	var row2_col := 0
+	for cfg in wave_cfg:
+		var row: int = 0
+		var col: int = row0_col
+		if str(cfg.class) == "tank":
+			row = 0
+			col = row0_col
+			row0_col += 1
+		elif row1_col < 3:
+			row = 1
+			col = row1_col
+			row1_col += 1
+		else:
+			row = 2
+			col = row2_col
+			row2_col += 1
+		var skills_arr: Array = []
+		for skill_id in cfg.skills:
+			if Data.ENEMY_SKILLS.has(StringName(str(skill_id))):
+				skills_arr.append(Data.ENEMY_SKILLS[StringName(str(skill_id))])
+		var ultimate: Dictionary = {}
+		if cfg.has("ultimate") and Data.ENEMY_SKILLS.has(StringName(str(cfg.ultimate))):
+			ultimate = Data.ENEMY_SKILLS[StringName(str(cfg.ultimate))]
+		battle.enemies.append({
+			"side": &"enemy", "id": StringName(str(cfg.id)), "name": str(cfg.name),
+			"class": str(cfg.class), "tier": str(cfg.get("tier", "normal")),
+			"row": row, "col": col,
+			"hp": int(cfg.hp), "max_hp": int(cfg.hp), "atk": int(cfg.atk), "def": int(cfg.def), "spd": int(cfg.spd),
+			"energy": 0, "cd_1": 0, "cd_2": 0,
+			"statuses": {}, "buffs": {}, "shield": 0, "taunt_turns": 0, "dodge_crit_ready": false,
+			"alive": true, "dmg_dealt": 0, "heal_done": 0,
+			"passive": { "effects": [] }, "skills": skills_arr, "ultimate": ultimate,
+		})
+
+## 战斗节拍：每秒 1 轮（契约 §1.3 / §3.4；2x 加速时 0.5 秒/轮）
 func _on_battle_tick() -> void:
 	if not battle.active:
 		return
 	battle.tick += 1
 	Contract.battle_tick.emit(battle.tick)
-	_resolve_round()
-	_check_battle_end()
-
-## 一轮结算：全体存活单位按速度降序出手（契约 §3.4"按速度排序先后出手"；
-## 敌方速度 = 0，自然落在我方之后，契合契约 §1.3"我方全体攻击一次 → 敌方全体攻击一次"）
-func _resolve_round() -> void:
+	if battle.tick > Data.BATTLE_MAX_ROUNDS:
+		_check_timeout()
+		return
+	# 全体存活单位按速度降序行动（含状态回合开始处理）
 	var order: Array = []
 	for m in battle.mechs:
-		if int(m.hp) > 0:
-			order.append({ "side": &"mech", "unit": m })
+		if bool(m.alive):
+			order.append(m)
 	for e in battle.enemies:
-		if int(e.hp) > 0:
-			order.append({ "side": &"enemy", "unit": e })
-	order.sort_custom(func(a, b): return int(a.unit.spd) > int(b.unit.spd))
-	for entry in order:
-		var attacker: Dictionary = entry.unit
-		if int(attacker.hp) <= 0:
+		if bool(e.alive):
+			order.append(e)
+	order.sort_custom(func(a, b): return int(a.spd) > int(b.spd))
+	for unit in order:
+		if not bool(unit.alive) or not battle.active:
 			continue
-		var target := _first_alive_target(entry.side)
-		if target.is_empty():
-			break
-		# 伤害公式（Data.DAMAGE_MIN，契约 §1.3）：伤害 = max(atk - def, DAMAGE_MIN)
-		var dmg: int = maxi(int(attacker.atk) - int(target.def), Data.DAMAGE_MIN)
-		target.hp = int(target.hp) - dmg
-		# 血量变化必须立即发信号（契约 §3.5）
-		if entry.side == &"mech":
-			Contract.enemy_updated.emit(StringName(target.id), int(target.hp))
-		else:
-			# 敌方出手 → 我方被攻击：血条刷新用 target（我方机娘）的参数
-			Contract.mech_girl_updated.emit(StringName(target.id), int(target.hp), int(target.atk), int(target.level))
+		_unit_turn(unit)
+	# 回合结束：每轮回血被动 + 计时递减
+	for m in battle.mechs:
+		if bool(m.alive):
+			_apply_passive_per_round_end(m)
+		_tick_unit_timers(m)
+	for e in battle.enemies:
+		_tick_unit_timers(e)
+	# 胜负判定
+	if not _any_alive(battle.mechs):
+		_resolve_defeat()
+		return
+	_check_wave_clear()
 
-## 返回对方阵营第一个存活单位（MVP：集火对方列表首位）；无存活目标返回空字典
-func _first_alive_target(attacker_side: StringName) -> Dictionary:
-	if attacker_side == &"mech":
-		for e in battle.enemies:
-			if int(e.hp) > 0:
-				return e
+## 单位回合：大招（能量满）→ 小技能（CD 到）→ 普攻
+func _unit_turn(unit) -> void:
+	if _apply_turn_start_status(unit):
+		return
+	if int(unit.energy) >= Data.ENERGY_MAX and not unit.ultimate.is_empty():
+		unit.energy = 0
+		_emit_energy(unit)
+		_cast_skill(unit, unit.ultimate, true)
+		return
+	for i in unit.skills.size():
+		var cd_key: String = "cd_" + str(i + 1)
+		if int(unit[cd_key]) <= 0:
+			var skill: Dictionary = unit.skills[i]
+			unit[cd_key] = int(skill.cd)
+			_cast_skill(unit, skill, false)
+			return
+	_cast_basic_attack(unit)
+
+## 普攻（目标 = 同列最近/嘲讽优先；命中加能量）
+func _cast_basic_attack(unit) -> void:
+	var target := _default_attack_target(unit)
+	if target.is_empty():
+		return
+	var dmg: int = _deal_damage(unit, target, 1.0, null, false)
+	if dmg > 0:
+		_gain_energy(unit, Data.ENERGY_GAIN_HIT)
+		# 被动：普攻连击（翎）、额外能量（芽/璇）
+		for eff in unit.passive.effects:
+			match str(eff.kind):
+				"combo_chance":
+					if randf() < float(eff.chance) and bool(target.alive):
+						_deal_damage(unit, target, float(eff.rate), null, false)
+				"energy_on_hit":
+					_gain_energy(unit, int(eff.value))
+
+## 释放技能（小技/大招）；发 skill_cast
+func _cast_skill(unit, skill: Dictionary, is_ultimate: bool) -> void:
+	var targets := _targets_for(unit, str(skill.target))
+	var value: int = 0
+	var effect: String = str(skill.effect)
+	match effect:
+		"damage":
+			for t in targets:
+				if not bool(t.alive):
+					continue
+				for hit in int(skill.get("hits", 1)):
+					if not bool(t.alive):
+						break
+					value += _deal_damage(unit, t, float(skill.rate), skill, is_ultimate)
+		"heal":
+			for t in targets:
+				if bool(t.alive):
+					value += _heal_unit(unit, t, float(skill.rate))
+		"shield":
+			for t in targets:
+				if bool(t.alive):
+					value += _shield_unit(unit, t, float(skill.rate))
+		"buff":
+			for t in targets:
+				if bool(t.alive):
+					_apply_buff(t, StringName(str(skill.stat)), float(skill.value), int(skill.get("duration", Data.STATUS_DURATION_DEFAULT)))
+		"debuff":
+			for t in targets:
+				if bool(t.alive):
+					_apply_debuff(t, StringName(str(skill.stat)), float(skill.value), int(skill.get("duration", Data.STATUS_DURATION_DEFAULT)))
+		"stun", "freeze":
+			for t in targets:
+				if bool(t.alive) and randf() < float(skill.get("chance", 1.0)):
+					_apply_status(t, StringName(effect), int(skill.get("duration", 1)), 0.0, 0.0)
+		"burn", "poison":
+			for t in targets:
+				if bool(t.alive) and randf() < float(skill.get("chance", 1.0)):
+					_apply_status(t, StringName(effect), int(skill.get("duration", Data.STATUS_DURATION_DEFAULT)), float(skill.get("rate", 0.3)), float(unit.atk))
+		"taunt":
+			for t in targets:
+				if bool(t.alive):
+					_apply_taunt(t, int(skill.get("duration", 1)))
+		"cleanse":
+			for t in targets:
+				if bool(t.alive):
+					_cleanse_unit(t)
+	# 非 damage 型技能的 bonus（damage 型在 _deal_damage 内处理）
+	if effect != "damage" and skill.has("bonus"):
+		_apply_skill_bonus(unit, targets, skill.bonus, 0)
+	Contract.skill_cast.emit(unit.side, unit.id, StringName(str(skill.id)), value)
+
+## 技能/普攻的附加效果（bonus 数组）
+func _apply_skill_bonus(attacker, targets: Array, bonus: Array, dealt: int) -> void:
+	for t in targets:
+		if not bool(t.alive):
+			continue
+		for b in bonus:
+			match str(b.kind):
+				"burn":
+					if randf() < float(b.get("chance", 1.0)):
+						_apply_status(t, &"burn", int(b.get("duration", Data.STATUS_DURATION_DEFAULT)), float(b.get("rate", 0.3)), float(attacker.atk))
+				"poison":
+					if randf() < float(b.get("chance", 1.0)):
+						_apply_status(t, &"poison", int(b.get("duration", Data.STATUS_DURATION_DEFAULT)), float(b.get("rate", 0.3)), float(attacker.atk))
+				"stun", "freeze":
+					if randf() < float(b.get("chance", 1.0)):
+						_apply_status(t, StringName(str(b.kind)), int(b.get("duration", 1)), 0.0, 0.0)
+				"armor_break":
+					_apply_debuff(t, &"def", float(b.get("value", 0.3)), int(b.get("duration", Data.STATUS_DURATION_DEFAULT)))
+				"debuff":
+					_apply_debuff(t, StringName(str(b.stat)), float(b.value), int(b.get("duration", Data.STATUS_DURATION_DEFAULT)))
+				"buff":
+					_apply_buff(t, StringName(str(b.stat)), float(b.value), int(b.get("duration", Data.STATUS_DURATION_DEFAULT)))
+				"shield":
+					_shield_unit(attacker, t, float(b.get("rate", 0.2)))
+				"cleanse":
+					_cleanse_unit(t)
+
+## 造成伤害主流程（闪避/斩杀/克制/暴击/减防/下限/护盾/能量/附加/击杀）
+func _deal_damage(attacker, target, rate: float, skill, is_ultimate: bool) -> int:
+	if _roll_dodge(target):
+		Contract.battle_prompt.emit(&"dodge", "闪避")
+		_on_dodge(target)
+		return 0
+	var mult: float = 1.0
+	var ignore_def: float = _passive_ignore_def(attacker)
+	if skill != null:
+		for b in skill.get("bonus", []):
+			if str(b.kind) == "execute" and float(target.hp) <= float(target.max_hp) * float(b.threshold):
+				mult *= 2.0
+			elif str(b.kind) == "ignore_def":
+				ignore_def += float(b.value)
+	mult *= _passive_execute_bonus(attacker, target)
+	var base: float = float(attacker.atk) * rate * mult
+	var def_eff: float = float(target.def) * (1.0 - ignore_def)
+	var dmg: float = base - def_eff
+	if dmg < base * Data.DAMAGE_FLOOR_RATIO:
+		dmg = base * Data.DAMAGE_FLOOR_RATIO
+	dmg *= _counter_mult(str(attacker.class), str(target.class))
+	var crit: bool = _roll_crit(attacker)
+	if crit:
+		var crit_mult: float = Data.CRIT_DAMAGE_MULT
+		if skill != null:
+			for b in skill.get("bonus", []):
+				if str(b.kind) == "crit_bonus":
+					crit_mult += float(b.value)
+		dmg *= crit_mult
+	dmg *= (1.0 - _total_buff(target, "damage_reduce"))
+	dmg *= (1.0 - _passive_damage_reduce(target))
+	var final_dmg: int = maxi(int(round(dmg)), Data.DAMAGE_MIN)
+	final_dmg = _damage_unit(target, final_dmg)
+	_gain_energy(target, Data.ENERGY_GAIN_HIT_TAKEN)
+	attacker.dmg_dealt = int(attacker.dmg_dealt) + final_dmg
+	if skill != null:
+		_apply_skill_bonus(attacker, [target], skill.get("bonus", []), final_dmg)
+	# 被动：月见破甲、汐/霜控制（普攻/技能命中时）
+	for eff in attacker.passive.effects:
+		match str(eff.kind):
+			"armor_break_on_hit":
+				if randf() < float(eff.chance):
+					_apply_debuff(target, &"def", float(eff.value), int(eff.duration))
+			"stun_chance":
+				if randf() < float(eff.chance):
+					_apply_status(target, StringName(eff.get("status", "stun")), int(eff.duration), 0.0, 0.0)
+	_on_taken_hit(target, attacker, final_dmg)
+	if not bool(target.alive):
+		_handle_kill(attacker, target, skill)
+	if crit:
+		Contract.battle_prompt.emit(&"crit", "暴击 " + str(final_dmg))
 	else:
-		for m in battle.mechs:
-			if int(m.hp) > 0:
-				return m
+		Contract.battle_prompt.emit(&"hit", str(final_dmg))
+	_emit_hp(target)
+	return final_dmg
+
+## 简化伤害（反击/反弹用，不递归完整判定）
+func _simple_damage(attacker, target, rate: float) -> int:
+	var dmg: float = float(attacker.atk) * rate - float(target.def)
+	if dmg < float(attacker.atk) * rate * Data.DAMAGE_FLOOR_RATIO:
+		dmg = float(attacker.atk) * rate * Data.DAMAGE_FLOOR_RATIO
+	var final_dmg: int = maxi(int(round(dmg)), Data.DAMAGE_MIN)
+	final_dmg = _damage_unit(target, final_dmg)
+	if not bool(target.alive):
+		_handle_kill(attacker, target, null)
+	_emit_hp(target)
+	return final_dmg
+
+## 扣血（护盾优先吸收）
+func _damage_unit(target, dmg: int) -> int:
+	var shield: int = int(target.shield)
+	if shield > 0:
+		var absorbed: int = mini(shield, dmg)
+		target.shield = shield - absorbed
+		dmg -= absorbed
+		if dmg <= 0:
+			Contract.battle_prompt.emit(&"shield", "护盾")
+			return 0
+	target.hp = int(target.hp) - dmg
+	if int(target.hp) <= 0:
+		target.hp = 0
+		target.alive = false
+		if target.side == &"mech":
+			battle.deaths = int(battle.deaths) + 1
+	return dmg
+
+## 治疗
+func _heal_unit(healer, target, rate: float) -> int:
+	var amount: int = maxi(int(round(float(healer.atk) * rate)), 1)
+	target.hp = mini(int(target.hp) + amount, int(target.max_hp))
+	healer.heal_done = int(healer.heal_done) + amount
+	Contract.battle_prompt.emit(&"heal", "治疗 " + str(amount))
+	_emit_hp(target)
+	return amount
+
+## 按最大血量比例治疗（被动回血用）
+func _heal_unit_raw(healer, target, ratio: float) -> int:
+	var amount: int = maxi(int(round(float(target.max_hp) * ratio)), 1)
+	target.hp = mini(int(target.hp) + amount, int(target.max_hp))
+	healer.heal_done = int(healer.heal_done) + amount
+	Contract.battle_prompt.emit(&"heal", "治疗 " + str(amount))
+	_emit_hp(target)
+	return amount
+
+## 护盾
+func _shield_unit(caster, target, rate: float) -> int:
+	var amount: int = maxi(int(round(float(target.max_hp) * rate)), 1)
+	target.shield = int(target.shield) + amount
+	Contract.battle_prompt.emit(&"shield", "护盾 " + str(amount))
+	return amount
+
+## 增益（不叠加只刷新时长）
+func _apply_buff(unit, stat: StringName, value: float, duration: int) -> void:
+	if not unit.buffs.has(stat):
+		unit.buffs[stat] = { "value": value, "duration": duration }
+	else:
+		unit.buffs[stat]["duration"] = duration
+
+## 减益（同增益）
+func _apply_debuff(unit, stat: StringName, value: float, duration: int) -> void:
+	_apply_buff(unit, stat, value, duration)
+	Contract.status_changed.emit(unit.side, unit.id, stat, duration)
+
+## 状态（眩晕/灼烧/中毒/冰冻；不叠加只刷新时长）
+func _apply_status(unit, status_id: StringName, duration: int, rate: float, source_atk: float) -> void:
+	if not unit.statuses.has(status_id):
+		unit.statuses[status_id] = { "duration": duration, "rate": rate, "source_atk": source_atk }
+	else:
+		unit.statuses[status_id]["duration"] = duration
+	Contract.status_changed.emit(unit.side, unit.id, status_id, duration)
+
+## 嘲讽（敌人优先攻击该单位）
+func _apply_taunt(unit, duration: int) -> void:
+	unit.taunt_turns = maxi(int(unit.taunt_turns), duration)
+
+## 净化（清除负面状态：减益 + 控制/持续状态）
+func _cleanse_unit(unit) -> void:
+	var negative := [&"stun", &"freeze", &"burn", &"poison"]
+	for sid in negative:
+		if unit.statuses.has(sid):
+			unit.statuses.erase(sid)
+			Contract.status_changed.emit(unit.side, unit.id, sid, 0)
+	for bkey in unit.buffs.keys():
+		var bname: String = String(bkey)
+		if bname == "atk" or bname == "def" or bname == "spd":
+			unit.buffs.erase(bkey)
+
+## 能量变化（100 满后不再加）
+func _gain_energy(unit, amount: int) -> void:
+	if int(unit.energy) >= Data.ENERGY_MAX:
+		return
+	unit.energy = mini(int(unit.energy) + amount, Data.ENERGY_MAX)
+	_emit_energy(unit)
+
+func _emit_energy(unit) -> void:
+	Contract.energy_changed.emit(unit.side, unit.id, int(unit.energy))
+
+## 血条信号
+func _emit_hp(unit) -> void:
+	if unit.side == &"mech":
+		Contract.mech_girl_updated.emit(unit.id, int(unit.hp), int(unit.atk), int(unit.level))
+	else:
+		Contract.enemy_updated.emit(unit.id, int(unit.hp))
+
+## 暴击判定（基础 10% + 被动 + 闪避联动必暴击）
+func _roll_crit(attacker) -> bool:
+	if bool(attacker.dodge_crit_ready):
+		attacker.dodge_crit_ready = false
+		return true
+	var rate: float = Data.CRIT_RATE_BASE
+	for eff in attacker.passive.effects:
+		if str(eff.kind) == "crit_rate":
+			rate += float(eff.value)
+	return randf() < rate
+
+## 闪避判定（基础 5% + 增益/被动）
+func _roll_dodge(target) -> bool:
+	var rate: float = Data.DODGE_RATE_BASE + _total_buff(target, "dodge")
+	for eff in target.passive.effects:
+		if str(eff.kind) == "dodge" or str(eff.kind) == "dodge_crit":
+			rate += float(eff.value)
+	return randf() < rate
+
+## 闪避后联动（星澜被动：下次攻击必暴击）
+func _on_dodge(target) -> void:
+	for eff in target.passive.effects:
+		if str(eff.kind) == "dodge_crit":
+			target.dodge_crit_ready = true
+
+## 职业克制系数（克制 +20%、被克 -10%、辅助中立）
+func _counter_mult(attacker_class: String, target_class: String) -> float:
+	if Data.CLASS_COUNTER.has(StringName(attacker_class)) and String(Data.CLASS_COUNTER[StringName(attacker_class)]) == target_class:
+		return Data.COUNTER_MULT
+	if Data.CLASS_COUNTER.has(StringName(target_class)) and String(Data.CLASS_COUNTER[StringName(target_class)]) == attacker_class:
+		return Data.COUNTER_PENALTY
+	return 1.0
+
+## buff 总值
+func _total_buff(unit, stat: String) -> float:
+	var total: float = 0.0
+	for key in unit.buffs:
+		if String(key) == stat:
+			total += float(unit.buffs[key].value)
+	return total
+
+## 被动：受伤减免
+func _passive_damage_reduce(unit) -> float:
+	var total: float = 0.0
+	for eff in unit.passive.effects:
+		if str(eff.kind) == "damage_reduce":
+			total += float(eff.value)
+	return total
+
+## 被动：无视防御
+func _passive_ignore_def(attacker) -> float:
+	var total: float = 0.0
+	for eff in attacker.passive.effects:
+		if str(eff.kind) == "ignore_def":
+			total += float(eff.value)
+	return total
+
+## 被动：处决加成（攻击血量低于阈值目标伤害加成，冥）
+func _passive_execute_bonus(attacker, target) -> float:
+	var total: float = 0.0
+	for eff in attacker.passive.effects:
+		if str(eff.kind) == "execute_bonus" and float(target.hp) <= float(target.max_hp) * float(eff.threshold):
+			total += float(eff.value)
+	return 1.0 + total
+
+## 被动：受击触发（反击/反弹）
+func _on_taken_hit(target, attacker, dmg: int) -> void:
+	if not bool(target.alive):
+		return
+	for eff in target.passive.effects:
+		if str(eff.kind) == "counter" and randf() < float(eff.chance):
+			var cdmg: int = _simple_damage(target, attacker, float(eff.rate))
+			if bool(eff.get("armor_break", false)):
+				_apply_debuff(attacker, &"def", 0.30, Data.STATUS_DURATION_DEFAULT)
+			Contract.battle_prompt.emit(&"hit", "反击 " + str(cdmg))
+		elif str(eff.kind) == "reflect" and randf() < float(eff.chance):
+			var rdmg: int = _simple_damage(target, attacker, float(eff.rate))
+			Contract.battle_prompt.emit(&"hit", "反弹 " + str(rdmg))
+
+## 击杀处理（追击 / 击杀回血 / 击杀回能量）
+func _handle_kill(attacker, target, skill) -> void:
+	Contract.battle_prompt.emit(&"kill", "击杀")
+	for eff in attacker.passive.effects:
+		if str(eff.kind) == "kill_heal":
+			_heal_unit_raw(attacker, attacker, float(eff.value))
+	if skill != null:
+		for b in skill.get("bonus", []):
+			match str(b.kind):
+				"chase":
+					var next_target := _next_target_same_row(attacker, target)
+					if not next_target.is_empty():
+						_deal_damage(attacker, next_target, float(b.rate), skill, true)
+				"heal_self_on_kill":
+					if str(b.get("resource", "hp")) == "energy":
+						_gain_energy(attacker, int(round(float(b.value) * 100.0)))
+
+## 同排下一个存活目标（追击用）
+func _next_target_same_row(attacker, target) -> Dictionary:
+	var enemies := battle.enemies if attacker.side == &"mech" else battle.mechs
+	for e in enemies:
+		if bool(e.alive) and int(e.row) == int(target.row) and StringName(str(e.id)) != StringName(str(target.id)):
+			return e
 	return {}
 
-## 胜负判定：敌人全灭 = 胜利（若与我方同归于尽，MVP 判玩家胜）；我方全灭 = 失败可重试
-func _check_battle_end() -> void:
-	var enemy_alive := false
-	for e in battle.enemies:
-		if int(e.hp) > 0:
-			enemy_alive = true
-			break
-	if not enemy_alive:
+## 回合开始状态处理：灼烧/中毒掉血；眩晕/冰冻跳过行动
+func _apply_turn_start_status(unit) -> bool:
+	var skipped: bool = unit.statuses.has(&"stun") or unit.statuses.has(&"freeze")
+	if unit.statuses.has(&"burn"):
+		var burn: Dictionary = unit.statuses[&"burn"]
+		var dmg: int = _status_dot(unit, float(burn.rate), float(burn.source_atk))
+		Contract.battle_prompt.emit(&"hit", "灼烧 " + str(dmg))
+		_emit_hp(unit)
+		if not bool(unit.alive):
+			return true
+	if unit.statuses.has(&"poison"):
+		var poison: Dictionary = unit.statuses[&"poison"]
+		var dmg2: int = _status_dot(unit, float(poison.rate), float(poison.source_atk))
+		Contract.battle_prompt.emit(&"hit", "中毒 " + str(dmg2))
+		_emit_hp(unit)
+		if not bool(unit.alive):
+			return true
+	return skipped
+
+## 持续状态每轮掉血（率 × 施放者攻击 − 防御，下限 30%）
+func _status_dot(unit, rate: float, source_atk: float) -> int:
+	var base: float = rate * source_atk
+	var dmg: float = base - float(unit.def)
+	if dmg < base * Data.DAMAGE_FLOOR_RATIO:
+		dmg = base * Data.DAMAGE_FLOOR_RATIO
+	var final_dmg: int = maxi(int(round(dmg)), Data.DAMAGE_MIN)
+	_damage_unit(unit, final_dmg)
+	return final_dmg
+
+## 回合结束计时：buff/状态/CD/嘲讽递减，到期移除
+func _tick_unit_timers(unit) -> void:
+	for key in unit.buffs.keys():
+		unit.buffs[key]["duration"] = int(unit.buffs[key]["duration"]) - 1
+		if int(unit.buffs[key]["duration"]) <= 0:
+			unit.buffs.erase(key)
+	for key in unit.statuses.keys():
+		unit.statuses[key]["duration"] = int(unit.statuses[key]["duration"]) - 1
+		if int(unit.statuses[key]["duration"]) <= 0:
+			unit.statuses.erase(key)
+			Contract.status_changed.emit(unit.side, unit.id, StringName(key), 0)
+	unit.cd_1 = maxi(int(unit.cd_1) - 1, 0)
+	unit.cd_2 = maxi(int(unit.cd_2) - 1, 0)
+	unit.taunt_turns = maxi(int(unit.taunt_turns) - 1, 0)
+
+## 开局被动：全体护盾（千夏）/ 全队攻光环（鸦/洛）/ 战斗开始偷袭（鸢）
+func _apply_passive_battle_start() -> void:
+	var atk_aura: float = 0.0
+	for m in battle.mechs:
+		for eff in m.passive.effects:
+			if str(eff.kind) == "atk_aura":
+				atk_aura += float(eff.value)
+	if atk_aura > 0.0:
+		for m in battle.mechs:
+			m.atk = int(round(float(m.atk) * (1.0 + atk_aura)))
+	for m in battle.mechs:
+		for eff in m.passive.effects:
+			if str(eff.kind) == "shield_start":
+				for ally in battle.mechs:
+					_shield_unit(m, ally, float(eff.value))
+			elif str(eff.kind) == "ambush":
+				var ambush_target := _lowest_hp_target(&"enemy")
+				if not ambush_target.is_empty():
+					_deal_damage(m, ambush_target, float(eff.rate), null, false)
+
+## 每轮回血被动（柚/糖/沐）
+func _apply_passive_per_round_end(unit) -> void:
+	for eff in unit.passive.effects:
+		if str(eff.kind) == "heal_per_round":
+			for ally in battle.mechs:
+				if bool(ally.alive):
+					_heal_unit_raw(unit, ally, float(eff.value))
+
+## 目标选择
+func _targets_for(unit, target_type: String) -> Array:
+	var enemies := battle.enemies if unit.side == &"mech" else battle.mechs
+	var allies := battle.mechs if unit.side == &"mech" else battle.enemies
+	match target_type:
+		"single":
+			var t := _default_attack_target(unit)
+			return [] if t.is_empty() else [t]
+		"lowest_hp":
+			var t2 := _lowest_hp_target(unit.side)
+			return [] if t2.is_empty() else [t2]
+		"lowest_hp_ally":
+			var t3 := _lowest_hp_ally(unit.side)
+			return [] if t3.is_empty() else [t3]
+		"front":
+			return _row_targets(enemies, 0)
+		"back":
+			var max_row := _max_row(enemies)
+			return _row_targets(enemies, max_row)
+		"all":
+			var all: Array = []
+			for e in enemies:
+				if bool(e.alive):
+					all.append(e)
+			return all
+		"all_ally":
+			var all_a: Array = []
+			for a in allies:
+				if bool(a.alive):
+					all_a.append(a)
+			return all_a
+		"self":
+			return [unit]
+	return []
+
+## 默认攻击目标：嘲讽优先 → 同列最近 → 前排（row 小）
+func _default_attack_target(attacker) -> Dictionary:
+	var enemies := battle.enemies if attacker.side == &"mech" else battle.mechs
+	for e in enemies:
+		if bool(e.alive) and int(e.taunt_turns) > 0:
+			return e
+	var best: Dictionary = {}
+	var best_score := 99999
+	for e in enemies:
+		if not bool(e.alive):
+			continue
+		var col_diff: int = absi(int(e.col) - int(attacker.col))
+		var same_col: int = 0 if col_diff == 0 else 1
+		var score: int = same_col * 1000 + int(e.row) * 10 + col_diff
+		if score < best_score:
+			best_score = score
+			best = e
+	return best
+
+## 敌方存活中血量最低
+func _lowest_hp_target(attacker_side) -> Dictionary:
+	var enemies := battle.enemies if attacker_side == &"mech" else battle.mechs
+	var best: Dictionary = {}
+	var best_hp := 1 << 30
+	for e in enemies:
+		if bool(e.alive) and int(e.hp) < best_hp:
+			best_hp = int(e.hp)
+			best = e
+	return best
+
+## 我方存活中血量最低
+func _lowest_hp_ally(attacker_side) -> Dictionary:
+	var allies := battle.mechs if attacker_side == &"mech" else battle.enemies
+	var best: Dictionary = {}
+	var best_hp := 1 << 30
+	for a in allies:
+		if bool(a.alive) and int(a.hp) < best_hp:
+			best_hp = int(a.hp)
+			best = a
+	return best
+
+## 某排全部存活目标
+func _row_targets(enemies: Array, row: int) -> Array:
+	var result: Array = []
+	for e in enemies:
+		if bool(e.alive) and int(e.row) == row:
+			result.append(e)
+	return result
+
+func _max_row(enemies: Array) -> int:
+	var m: int = 0
+	for e in enemies:
+		if bool(e.alive):
+			m = maxi(m, int(e.row))
+	return m
+
+func _any_alive(units: Array) -> bool:
+	for u in units:
+		if bool(u.alive):
+			return true
+	return false
+
+## 波次推进：当前波清空 → 下一波或胜利
+func _check_wave_clear() -> void:
+	if _any_alive(battle.enemies):
+		return
+	if battle.pending_waves.is_empty():
 		_resolve_victory()
 		return
-	var mech_alive := false
-	for m in battle.mechs:
-		if int(m.hp) > 0:
-			mech_alive = true
-			break
-	if not mech_alive:
+	battle.wave = int(battle.wave) + 1
+	battle.enemies = []
+	_spawn_wave(battle.pending_waves[0])
+	battle.pending_waves.remove_at(0)
+	Contract.wave_changed.emit(battle.wave, battle.total_waves)
+	for e in battle.enemies:
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, 0)
+
+## 60 轮超时：按双方剩余血量百分比判定（我方高则胜，否则败）
+func _check_timeout() -> void:
+	var mech_ratio: float = _remaining_hp_ratio(battle.mechs)
+	var enemy_ratio: float = _remaining_hp_ratio(battle.enemies)
+	Contract.battle_prompt.emit(&"hit", "战斗超时")
+	if mech_ratio >= enemy_ratio:
+		_resolve_victory()
+	else:
 		_resolve_defeat()
 
-## 胜利：首通判定与奖励 → 全体上阵机娘得经验（含本局阵亡者）→ 解锁下一关 →
-## 记录 last_clear → 发 level_cleared → 自动存档
+func _remaining_hp_ratio(units: Array) -> float:
+	var total := 0.0
+	var max_total := 0.0
+	for u in units:
+		max_total += float(u.max_hp)
+		if bool(u.alive):
+			total += float(u.hp)
+	if max_total <= 0.0:
+		return 0.0
+	return total / max_total
+
+## 胜利：星级 → 首通奖励 → 星奖/章节宝箱 → 全体上阵机娘得经验 → 解锁下一关 →
+## 记录 last_clear → 发 battle_star + level_cleared → 自动存档
 func _resolve_victory() -> void:
 	battle.active = false
 	battle_timer.stop()
 	var level: int = int(battle.level)
 	var first_clear: bool = not cleared_levels.has(level)
 	var reward: int = 0
+	var star: int = _calc_star(int(battle.deaths))
 	if first_clear:
 		cleared_levels[level] = true
 		reward = int(Data.LEVELS[level].first_clear_reward)
@@ -329,26 +1029,73 @@ func _resolve_victory() -> void:
 		if diamond_reward > 0:
 			diamond += diamond_reward
 			Contract.diamond_changed.emit(diamond)
+		# BOSS 关记录
+		if int(Data.CHAPTERS[1].boss_level) == level:
+			cleared_boss[level] = true
 		var next_level: int = level + 1
 		if next_level <= Data.MAX_LEVEL and next_level > unlocked_level:
 			unlocked_level = next_level
 			Contract.level_progress_changed.emit(unlocked_level)
-	# 胜利经验：遍历本局出战名单 battle.mechs（含本局阵亡者，契约 §1.3 v0.5：
-	# 所有出战机娘都得经验；非首通重复胜利也给经验用于练级；失败无经验）
+	# 星级记录 + 星奖（首次达到某星级发对应档奖励，一次性）
+	var old_star: int = int(level_stars.get(level, 0))
+	if star > old_star:
+		for s in range(old_star + 1, star + 1):
+			_grant_star_reward(s)
+		level_stars[level] = star
+	# 章节星数宝箱（第 1 章 5 关 × 3 星，集满 90%）
+	_check_chapter_chest()
+	# 胜利经验：全体上阵机娘（含本局阵亡者）进个人条
 	var exp_gain: int = int(Data.LEVELS[level].victory_reward_exp)
-	for m in battle.mechs:
-		var mech_id := StringName(m.id)
-		var new_exp: int = int(mech_exp.get(mech_id, 0)) + exp_gain
-		mech_exp[mech_id] = new_exp
-		Contract.mech_exp_updated.emit(mech_id, new_exp, _upgrade_exp_cost(mech_id, int(mech_levels.get(mech_id, 1))))
+	for mech_id in battle.mech_ids:
+		var mid := StringName(mech_id)
+		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
+		mech_exp[mid] = new_exp
+		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
 	# 记录本局通关信息（内存态，不入档）
 	last_clear = { "level": level, "first_clear": first_clear, "reward": reward }
-	# level_cleared 最后发，确保 UI 收到时金币 / 关卡进度 / 经验 / last_clear 已更新
+	Contract.battle_star.emit(star)
 	Contract.level_cleared.emit(level, first_clear)
 	Save.save_game()
 
-## 失败：发 battle_failed（契约 §3.5 v0.2，battle_view connect 显示失败/重试）
-## → 停止战斗，可重试（再次 start_battle 即可）。
+## 星级规则（设计文档 §8.3）：无人阵亡 3 星、阵亡 1~2 人 2 星、惨胜 1 星
+func _calc_star(deaths: int) -> int:
+	if deaths <= Data.STAR_3_MAX_DEATHS:
+		return 3
+	if deaths <= Data.STAR_2_MAX_DEATHS:
+		return 2
+	return 1
+
+## 星奖（设计文档 §1.3：1 星金币 / 2 星钻石 / 3 星召唤券，各一次性）
+func _grant_star_reward(star: int) -> void:
+	match star:
+		1:
+			gold += Data.STAR_REWARD_GOLD
+			Contract.gold_changed.emit(gold)
+		2:
+			diamond += Data.STAR_REWARD_DIAMOND
+			Contract.diamond_changed.emit(diamond)
+		3:
+			summon_ticket += Data.STAR_REWARD_TICKET
+
+## 章节星数宝箱（第 1 章满 15 星，集满 90% 领一次）
+func _check_chapter_chest() -> void:
+	if chapter_chest_claimed:
+		return
+	var chapter: Dictionary = Data.CHAPTERS[1]
+	var total_stars: int = int(chapter.levels) * 3
+	var earned := 0
+	for level in level_stars:
+		if int(level) >= 1 and int(level) <= int(chapter.levels):
+			earned += int(level_stars[level])
+	if float(earned) >= float(total_stars) * Data.CHAPTER_CHEST_STAR_RATIO:
+		chapter_chest_claimed = true
+		gold += Data.CHAPTER_CHEST_GOLD
+		diamond += Data.CHAPTER_CHEST_DIAMOND
+		Contract.gold_changed.emit(gold)
+		Contract.diamond_changed.emit(diamond)
+		Contract.battle_prompt.emit(&"skill", "章节宝箱已开启！")
+
+## 失败：发 battle_failed → 停止战斗，可重试
 func _resolve_defeat() -> void:
 	battle.active = false
 	battle_timer.stop()
@@ -575,12 +1322,150 @@ func get_owned_mechs() -> Array:
 	return _owned_mech_ids()
 
 ## ---------------------------------------------------------------
+## 布阵（契约 §3.6 / §3.9 入口，v0.8）：9 格选 ≤5，每格 {id, row, col}
+## 校验：id 已拥有、row/col 0..2、格不重复、id 不重复
+## 签名：set_formation(formation: Array)；生效后发 formation_changed
+## ---------------------------------------------------------------
+func set_formation(new_formation: Array) -> void:
+	if not (new_formation is Array) or new_formation.size() > 5:
+		return
+	var slots: Array = []
+	var used_cells := {}
+	var used_ids := {}
+	for slot in new_formation:
+		if not (slot is Dictionary):
+			return
+		var mech_id := StringName(str(slot.get("id", "")))
+		var row: int = int(slot.get("row", -1))
+		var col: int = int(slot.get("col", -1))
+		if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+			return
+		if row < 0 or row > 2 or col < 0 or col > 2:
+			return
+		var cell := row * 3 + col
+		if used_cells.has(cell) or used_ids.has(mech_id):
+			return
+		used_cells[cell] = true
+		used_ids[mech_id] = true
+		slots.append({ "id": mech_id, "row": row, "col": col })
+	if slots.size() < 2:
+		return
+	formation = slots
+	Contract.formation_changed.emit(formation)
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 只读：当前阵型（契约 §3.6 入口，v0.8）
+## 签名：get_formation() -> Array
+## ---------------------------------------------------------------
+func get_formation() -> Array:
+	return formation
+
+## ---------------------------------------------------------------
+## 保存阵型预设（契约 §3.6 / §3.9 入口，v0.8）：index 0..2（2~3 套）
+## 签名：save_formation_preset(index: int, formation: Array)
+## ---------------------------------------------------------------
+func save_formation_preset(index: int, preset_formation: Array) -> void:
+	if index < 0 or index > 2:
+		return
+	if not (preset_formation is Array) or preset_formation.size() > 5:
+		return
+	# 复用 set_formation 的校验逻辑（静态校验，不应用）
+	var slots: Array = []
+	var used_cells := {}
+	var used_ids := {}
+	for slot in preset_formation:
+		if not (slot is Dictionary):
+			return
+		var mech_id := StringName(str(slot.get("id", "")))
+		var row: int = int(slot.get("row", -1))
+		var col: int = int(slot.get("col", -1))
+		if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+			return
+		if row < 0 or row > 2 or col < 0 or col > 2:
+			return
+		var cell := row * 3 + col
+		if used_cells.has(cell) or used_ids.has(mech_id):
+			return
+		used_cells[cell] = true
+		used_ids[mech_id] = true
+		slots.append({ "id": mech_id, "row": row, "col": col })
+	if slots.size() < 2:
+		return
+	formation_presets[str(index)] = slots
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 读取阵型预设并应用（契约 §3.6 / §3.9 入口，v0.8）
+## 签名：load_formation_preset(index: int)
+## ---------------------------------------------------------------
+func load_formation_preset(index: int) -> void:
+	if not formation_presets.has(str(index)):
+		return
+	set_formation(formation_presets[str(index)])
+
+## ---------------------------------------------------------------
+## 战斗 2x 加速开关（契约 §3.6 / §3.9 入口，v0.8；内存态，不入档）
+## 签名：toggle_accelerate(on: bool)
+## ---------------------------------------------------------------
+func toggle_accelerate(on: bool) -> void:
+	accelerate = on
+	battle.accelerate = on
+	if battle.active:
+		_apply_battle_timer_speed()
+
+## 按加速状态设置战斗节拍间隔（2x = 0.5 秒/轮）
+func _apply_battle_timer_speed() -> void:
+	if battle.active and bool(battle.accelerate):
+		battle_timer.wait_time = Data.BATTLE_TICK_INTERVAL / 2.0
+	else:
+		battle_timer.wait_time = Data.BATTLE_TICK_INTERVAL
+
+## ---------------------------------------------------------------
+## 扫荡已通关关卡（契约 §3.6 / §3.9 入口，v0.8）：跳过战斗直接拿胜利奖励
+## （上阵机娘得 victory_reward_exp；非首通无金币/钻石）
+## 签名：sweep_level(level: int)
+## ---------------------------------------------------------------
+func sweep_level(level: int) -> void:
+	if not cleared_levels.has(level) or battle.active:
+		return
+	var exp_gain: int = int(Data.LEVELS[level].victory_reward_exp)
+	# 扫荡给"上阵机娘"（当前阵型；空则拥有前 5）经验
+	var sweep_ids: Array = []
+	for slot in formation:
+		if not sweep_ids.has(StringName(str(slot.id))):
+			sweep_ids.append(StringName(str(slot.id)))
+	if sweep_ids.is_empty():
+		sweep_ids = _owned_mech_ids()
+	for mech_id in sweep_ids:
+		var mid := StringName(mech_id)
+		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
+		mech_exp[mid] = new_exp
+		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	var star: int = int(level_stars.get(level, 1))
+	Contract.battle_star.emit(star)
+	Contract.battle_prompt.emit(&"skill", "扫荡完成")
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 只读：机娘战力（契约 §3.6 / §3.9 入口，v0.8）
+## 公式：攻×4 + 血×1 + 防×6 + 速×5（设计文档 §10.1 / 附录 B）
+## 签名：get_power(mech_id: StringName) -> int
+## ---------------------------------------------------------------
+func get_power(mech_id: StringName) -> int:
+	if not Data.MECH_GIRLS.has(mech_id):
+		return 0
+	var s := _mech_stats(mech_id)
+	return int(s.atk) * Data.POWER_ATK_W + int(s.hp) * Data.POWER_HP_W + int(s.def) * Data.POWER_DEF_W + int(s.spd) * Data.POWER_SPD_W
+
+## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
 ## 返回：{ gold, exp_balance, mechs{level, exp}, unlocked_level, first_cleared,
 ##         idle_pending, idle_pending_exp, idle_last_time, diamond, summon_ticket,
 ##         fragments, owned_mechs, pity, novice_free_pull, novice_pool_left,
-##         novice_first_ten_done }（契约 §3.2，v0.7 存档形状）
+##         novice_first_ten_done, formation, formation_presets, level_stars,
+##         cleared_boss, chapter_chest_claimed }（契约 §3.2，v0.8 存档形状）
 ## ---------------------------------------------------------------
 func get_save_snapshot() -> Dictionary:
 	var mechs := {}
@@ -610,4 +1495,9 @@ func get_save_snapshot() -> Dictionary:
 		"novice_free_pull": novice_free_pull,
 		"novice_pool_left": novice_pool_left,
 		"novice_first_ten_done": novice_first_ten_done,
+		"formation": formation,
+		"formation_presets": formation_presets,
+		"level_stars": level_stars,
+		"cleared_boss": cleared_boss,
+		"chapter_chest_claimed": chapter_chest_claimed,
 	}
