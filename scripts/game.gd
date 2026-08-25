@@ -507,7 +507,7 @@ func _cast_skill(unit, skill: Dictionary, is_ultimate: bool) -> void:
 	# 非 damage 型技能的 bonus（damage 型在 _deal_damage 内处理）
 	if effect != "damage" and skill.has("bonus"):
 		_apply_skill_bonus(unit, targets, skill.bonus, 0)
-	Contract.skill_cast.emit(unit.side, unit.id, StringName(str(skill.get("id", &"enemy_skill"))), value)
+	Contract.skill_cast.emit(unit.side, unit.id, StringName(str(skill.get("id", skill.get("name", &"skill")))), value)
 
 ## 技能/普攻的附加效果（bonus 数组）
 func _apply_skill_bonus(attacker, targets: Array, bonus: Array, dealt: int) -> void:
@@ -647,17 +647,17 @@ func _shield_unit(caster, target, rate: float) -> int:
 	Contract.battle_prompt.emit(&"shield", "护盾 " + str(amount))
 	return amount
 
-## 增益（不叠加只刷新时长）
+## 增益（不叠加只刷新时长；应用即通知 UI）
 func _apply_buff(unit, stat: StringName, value: float, duration: int) -> void:
 	if not unit.buffs.has(stat):
 		unit.buffs[stat] = { "value": value, "duration": duration }
 	else:
 		unit.buffs[stat]["duration"] = duration
+	Contract.status_changed.emit(unit.side, unit.id, stat, duration)
 
-## 减益（同增益）
+## 减益（同增益；信号由 _apply_buff 统一发出）
 func _apply_debuff(unit, stat: StringName, value: float, duration: int) -> void:
 	_apply_buff(unit, stat, value, duration)
-	Contract.status_changed.emit(unit.side, unit.id, stat, duration)
 
 ## 状态（眩晕/灼烧/中毒/冰冻；不叠加只刷新时长）
 func _apply_status(unit, status_id: StringName, duration: int, rate: float, source_atk: float) -> void:
@@ -667,11 +667,12 @@ func _apply_status(unit, status_id: StringName, duration: int, rate: float, sour
 		unit.statuses[status_id]["duration"] = duration
 	Contract.status_changed.emit(unit.side, unit.id, status_id, duration)
 
-## 嘲讽（敌人优先攻击该单位）
+## 嘲讽（敌人优先攻击该单位；应用即通知 UI）
 func _apply_taunt(unit, duration: int) -> void:
 	unit.taunt_turns = maxi(int(unit.taunt_turns), duration)
+	Contract.status_changed.emit(unit.side, unit.id, &"taunt", int(unit.taunt_turns))
 
-## 净化（清除负面状态：减益 + 控制/持续状态）
+## 净化（清除负面状态：减益 + 控制/持续状态；移除均通知 UI）
 func _cleanse_unit(unit) -> void:
 	var negative := [&"stun", &"freeze", &"burn", &"poison"]
 	for sid in negative:
@@ -682,6 +683,7 @@ func _cleanse_unit(unit) -> void:
 		var bname: String = String(bkey)
 		if bname == "atk" or bname == "def" or bname == "spd":
 			unit.buffs.erase(bkey)
+			Contract.status_changed.emit(unit.side, unit.id, StringName(bkey), 0)
 
 ## 能量变化（100 满后不再加）
 func _gain_energy(unit, amount: int) -> void:
@@ -833,12 +835,13 @@ func _status_dot(unit, rate: float, source_atk: float) -> int:
 	_damage_unit(unit, final_dmg)
 	return final_dmg
 
-## 回合结束计时：buff/状态/CD/嘲讽递减，到期移除
+## 回合结束计时：buff/状态/CD/嘲讽递减，到期移除（移除均通知 UI，duration=0）
 func _tick_unit_timers(unit) -> void:
 	for key in unit.buffs.keys():
 		unit.buffs[key]["duration"] = int(unit.buffs[key]["duration"]) - 1
 		if int(unit.buffs[key]["duration"]) <= 0:
 			unit.buffs.erase(key)
+			Contract.status_changed.emit(unit.side, unit.id, StringName(key), 0)
 	for key in unit.statuses.keys():
 		unit.statuses[key]["duration"] = int(unit.statuses[key]["duration"]) - 1
 		if int(unit.statuses[key]["duration"]) <= 0:
@@ -846,7 +849,10 @@ func _tick_unit_timers(unit) -> void:
 			Contract.status_changed.emit(unit.side, unit.id, StringName(key), 0)
 	unit.cd_1 = maxi(int(unit.cd_1) - 1, 0)
 	unit.cd_2 = maxi(int(unit.cd_2) - 1, 0)
-	unit.taunt_turns = maxi(int(unit.taunt_turns) - 1, 0)
+	var old_taunt: int = int(unit.taunt_turns)
+	unit.taunt_turns = maxi(old_taunt - 1, 0)
+	if old_taunt > 0 and int(unit.taunt_turns) == 0:
+		Contract.status_changed.emit(unit.side, unit.id, &"taunt", 0)
 
 ## 开局被动：全体护盾（千夏）/ 全队攻光环（鸦/洛）/ 战斗开始偷袭（鸢）
 func _apply_passive_battle_start() -> void:

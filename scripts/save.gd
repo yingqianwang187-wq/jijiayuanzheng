@@ -24,7 +24,8 @@ const SAVE_PATH := "user://save.json"
 ##   unlocked_level, first_cleared, mechs{level, exp}, diamond, summon_ticket,
 ##   fragments{id:int}, owned_mechs{id:true}, pity, novice_free_pull,
 ##   novice_pool_left, novice_first_ten_done, formation[{id,row,col}],
-##   formation_presets{index:[...]}, level_stars{level:star}, cleared_boss{level:true} }
+##   formation_presets{index:[...]}, level_stars{level:star}, cleared_boss{level:true},
+##   chapter_chest_claimed }
 func save_game() -> void:
 	var snapshot: Dictionary = Game.get_save_snapshot()
 	var save_dict := {
@@ -49,6 +50,7 @@ func save_game() -> void:
 		"formation_presets": {},
 		"level_stars": {},
 		"cleared_boss": {},
+		"chapter_chest_claimed": bool(snapshot.get("chapter_chest_claimed", false)),
 	}
 	var mechs: Dictionary = snapshot.get("mechs", {})
 	for key in mechs:
@@ -225,6 +227,9 @@ func load_game() -> Dictionary:
 			var level := int(key)
 			if level >= 1 and level <= Data.MAX_LEVEL:
 				result["cleared_boss"][level] = true
+	# 章节星数宝箱领取标记（v0.8；旧档无此字段 → 默认 false，补齐不丢）
+	if parsed_dict.has("chapter_chest_claimed"):
+		result["chapter_chest_claimed"] = bool(parsed_dict["chapter_chest_claimed"])
 	return result
 
 ## 默认档数据（契约 §3.2，v0.8）：金币/钻石/余额/待收获均 0、机娘取 Data 初始配置
@@ -258,4 +263,5 @@ func _default_data() -> Dictionary:
 		"formation_presets": {},
 		"level_stars": {},
 		"cleared_boss": {},
+		"chapter_chest_claimed": false,
 	}
