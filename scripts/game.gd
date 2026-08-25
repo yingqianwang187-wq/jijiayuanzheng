@@ -857,7 +857,7 @@ func _handle_kill(attacker, target, skill, allow_chase: bool = true) -> void:
 			match str(b.kind):
 				"chase":
 					if allow_chase:
-						var next_target := _next_target_same_row(attacker, target)
+						var next_target := _next_target_same_col(attacker, target)
 						if not next_target.is_empty():
 							var cdmg: int = _deal_damage(attacker, next_target, float(b.rate), skill, true, false, true)
 							if cdmg > 0:
@@ -866,11 +866,12 @@ func _handle_kill(attacker, target, skill, allow_chase: bool = true) -> void:
 					if str(b.get("resource", "hp")) == "energy":
 						_gain_energy(attacker, int(round(float(b.value) * 100.0)))
 
-## 同排下一个存活目标（追击用）
-func _next_target_same_row(attacker, target) -> Dictionary:
+## 追击目标：与 target 同一 col 的下一个存活敌人（v0.12：追击"同排"= 同一列；
+## row 不限、跳过 target 自己、取第一个）；无同列目标返回空
+func _next_target_same_col(attacker, target) -> Dictionary:
 	var enemies: Array = battle.enemies if attacker.side == &"mech" else battle.mechs
 	for e in enemies:
-		if bool(e.alive) and int(e.row) == int(target.row) and StringName(str(e.id)) != StringName(str(target.id)):
+		if bool(e.alive) and int(e.col) == int(target.col) and StringName(str(e.id)) != StringName(str(target.id)):
 			return e
 	return {}
 
