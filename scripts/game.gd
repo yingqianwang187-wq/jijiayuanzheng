@@ -378,11 +378,12 @@ func start_battle(level: int) -> void:
 	_apply_battle_timer_speed()
 	battle_timer.start()
 
-## 阵型为空时自动生成：拥有的前 ≤5 位排 3-2 布局（前排 3 格 + 中排 2 格）
+## 阵型为空时自动生成：拥有的前 ≤5 位排 3-2 布局（v0.11：右列 col2 3 前排 + 中列 col1 2 后排；
+## 前排 = 靠近敌方一侧，我方右列先接敌）
 func _ensure_default_formation() -> void:
 	var ids := _owned_mech_ids()
 	formation = []
-	var layout := [ [0, 0], [0, 1], [0, 2], [1, 0], [1, 1] ]
+	var layout := [ [0, 2], [1, 2], [2, 2], [0, 1], [1, 1] ]
 	for i in mini(ids.size(), 5):
 		formation.append({ "id": ids[i], "row": layout[i][0], "col": layout[i][1] })
 
@@ -400,27 +401,28 @@ func _build_mech_unit(mech_id: StringName, row: int, col: int) -> Dictionary:
 		"passive": cfg.passive, "skills": cfg.skills, "ultimate": cfg.ultimate,
 	}
 
-## 生成一波敌方单位（AI 排阵：tank 前排 row0，其余 row1/row2，同排 col 依次分配）
+## 生成一波敌方单位（AI 排阵 v0.11：tank 排 col0 前排（靠近我方一侧），其余输出单位排 col1/col2；
+## row 仅用于同列内铺开——col0 内 row0/row1/row2 依次分配，col1 内同理，col2 最后；保持每波 ≤5）
 func _spawn_wave(wave_cfg: Array) -> void:
 	battle.enemies = []
-	var row0_col := 0
-	var row1_col := 0
-	var row2_col := 0
+	var col0_row := 0
+	var col1_row := 0
+	var col2_row := 0
 	for cfg in wave_cfg:
-		var row: int = 0
-		var col: int = row0_col
+		var row: int = col1_row
+		var col: int = 1
 		if str(cfg.class) == "tank":
-			row = 0
-			col = row0_col
-			row0_col += 1
-		elif row1_col < 3:
-			row = 1
-			col = row1_col
-			row1_col += 1
+			row = col0_row
+			col = 0
+			col0_row += 1
+		elif col1_row < 3:
+			row = col1_row
+			col = 1
+			col1_row += 1
 		else:
-			row = 2
-			col = row2_col
-			row2_col += 1
+			row = col2_row
+			col = 2
+			col2_row += 1
 		var skills_arr: Array = []
 		for skill_id in cfg.skills:
 			if Data.ENEMY_SKILLS.has(StringName(str(skill_id))):
@@ -963,10 +965,13 @@ func _targets_for(unit, target_type: String) -> Array:
 			var t3 := _lowest_hp_ally(unit.side)
 			return [] if t3.is_empty() else [t3]
 		"front":
-			return _row_targets(enemies, 0)
+			# 前排 = 靠近敌方一侧的那一列：我方视角 col2 / 敌方视角 col0（v0.11）
+			var front_col: int = 0 if unit.side == &"mech" else 2
+			return _col_targets(enemies, front_col)
 		"back":
-			var max_row := _max_row(enemies)
-			return _row_targets(enemies, max_row)
+			# 后排 = 远离敌方一侧的那一列：我方视角 col0 / 敌方视角 col2（v0.11）
+			var back_col: int = 2 if unit.side == &"mech" else 0
+			return _col_targets(enemies, back_col)
 		"all":
 			var all: Array = []
 			for e in enemies:
@@ -983,7 +988,9 @@ func _targets_for(unit, target_type: String) -> Array:
 			return [unit]
 	return []
 
-## 默认攻击目标：嘲讽优先 → 同列最近 → 前排（row 小）
+## 默认攻击目标：嘲讽优先 → 同列最近 → 前排（靠近敌方一侧）优先 → 列距兜底（v0.11）
+## 前排判定：我方攻击敌方时，敌方 col 越小越靠前（敌方 col0 为前排，先接敌）；
+##            敌方攻击我方时，我方 col 越大越靠前（我方 col2 为前排，先接敌）
 func _default_attack_target(attacker) -> Dictionary:
 	var enemies: Array = battle.enemies if attacker.side == &"mech" else battle.mechs
 	for e in enemies:
@@ -996,7 +1003,9 @@ func _default_attack_target(attacker) -> Dictionary:
 			continue
 		var col_diff: int = absi(int(e.col) - int(attacker.col))
 		var same_col: int = 0 if col_diff == 0 else 1
-		var score: int = same_col * 1000 + int(e.row) * 10 + col_diff
+		# 靠近敌方一侧优先：我方攻击者取 e.col（小=前排 col0）；敌方攻击者取 (2 - e.col)（大=前排 col2）
+		var front: int = int(e.col) if attacker.side == &"mech" else 2 - int(e.col)
+		var score: int = same_col * 1000 + front * 10 + col_diff
 		if score < best_score:
 			best_score = score
 			best = e
@@ -1024,20 +1033,13 @@ func _lowest_hp_ally(attacker_side) -> Dictionary:
 			best = a
 	return best
 
-## 某排全部存活目标
-func _row_targets(enemies: Array, row: int) -> Array:
+## 某列全部存活目标（v0.11：front/back AOE 按列取；替换原按行取 _row_targets / _max_row）
+func _col_targets(units: Array, col: int) -> Array:
 	var result: Array = []
-	for e in enemies:
-		if bool(e.alive) and int(e.row) == row:
-			result.append(e)
+	for u in units:
+		if bool(u.alive) and int(u.col) == col:
+			result.append(u)
 	return result
-
-func _max_row(enemies: Array) -> int:
-	var m: int = 0
-	for e in enemies:
-		if bool(e.alive):
-			m = maxi(m, int(e.row))
-	return m
 
 func _any_alive(units: Array) -> bool:
 	for u in units:
