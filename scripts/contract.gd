@@ -1,4 +1,4 @@
-# 机娘放置挂机游戏 · 公共契约（代码版） v0.9
+# 机娘放置挂机游戏 · 公共契约（代码版） v0.10
 # ==================================================================
 # 作者   ：契约官（= 总指挥 A，手册第三节；只写契约与常量脚本，不写业务逻辑）
 # 依据   ：docs/契约.md（文档版，必须与本文件同步修改、同步升版本号）
@@ -14,6 +14,11 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.10（战斗判定/星级体系/开局运营，设计文档 v0.18）：新增信号 mech_star_updated；
+#       入口 upgrade_star / star_cost / get_level_cap；战斗判定细则（先闪避后暴击、护盾叠加、
+#       嘲讽只影响普攻+单体技、被控不加能量、追击/连击/反击算普攻等）；升星 1~10 星
+#       （1~5 星碎片升星 +8%/星；6~10 星满级 100 解锁、每星 +20 级上限）；开局金币 1000+钻石 300；
+#       召唤券 1 券 = 300 钻 = 1 抽；满级经验不累计。
 #   v0.9（主线玩法调整，文档级规则，无新信号/新常量）：主线不可选关（只能打当前最高未通关的下一关，
 #       新增只读入口 Game.get_next_level()）；主线不可扫荡（扫荡仅限秘境，阶段 3 实装）；
 #       首通掉落小钰碎片（普通 1 片 / BOSS 3 片）；主线不可重打（非首通重复胜利经验不再适用）。
@@ -43,7 +48,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.9"
+const CONTRACT_VERSION := "v0.10"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -92,6 +97,8 @@ const TERM_WAVE           := "wave"      # 波次
 const TERM_BOSS           := "boss"      # 章节 Boss
 const TERM_FORMATION      := "formation" # 阵型（3x3 九宫格选 5 格布阵）
 const TERM_STAR           := "star"      # 关卡星级（1~3 星）
+const TERM_STAR_UPGRADE   := "star_upgrade"  # 机娘升星（1~10 星）
+const TERM_LEVEL_CAP      := "level_cap"     # 等级上限（基础 100，星突破每星 +20）
 const TERM_PAID_COIN := "paid_coin"   # 付费币（阶段 4 起用）
 
 # ------------------------------------------------------------------
@@ -127,3 +134,4 @@ signal wave_changed(wave: int, total: int)                                 # 波
 signal battle_prompt(kind: StringName, text: String)                       # 战斗提示（hit/crit/dodge/kill/skill/heal/shield，按 kind 分色）
 signal battle_star(star: int)                                              # 关卡星级评价（1~3 星）
 signal formation_changed(formation: Array)                                 # 阵型变化（9 格选 5，每格 {id, row, col}）
+signal mech_star_updated(id: StringName, star: int, level_cap: int)        # 机娘星级变化（升星后；level_cap=当前等级上限）
