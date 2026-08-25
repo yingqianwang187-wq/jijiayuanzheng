@@ -1788,9 +1788,10 @@ func _start_dungeon_battle(kind: StringName, tier: int, cost: int) -> void:
 		used_ids[mech_id] = true
 		battle.mechs.append(_build_mech_unit(mech_id, int(slot.row), int(slot.col)))
 		battle.mech_ids.append(mech_id)
+	# 敌方波次：副本级 Data.DUNGEONS[kind].waves 按档位索引（每档 = 一波敌人数组），
+	# 整波作为 pending_waves 一项（与主线结构一致：每项 = 一波敌人数组）
 	battle.pending_waves = []
-	for wave_cfg in tier_cfg.waves:
-		battle.pending_waves.append(wave_cfg)
+	battle.pending_waves.append(Data.DUNGEONS[kind].waves[tier])
 	_spawn_wave(battle.pending_waves[0])
 	battle.pending_waves.remove_at(0)
 	_apply_passive_battle_start()

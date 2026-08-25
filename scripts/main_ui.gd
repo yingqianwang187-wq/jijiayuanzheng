@@ -1,15 +1,17 @@
 # ==================================================================
 # scripts/main_ui.gd —— 主界面脚本（挂在 scenes/Main.tscn 根节点）
 # 作者   ：C（画面 + 界面）
-# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8 / §3.9（v0.10）、scripts/contract.gd（只读）
+# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8 / §3.9 / §3.10（v0.13）、scripts/contract.gd（只读）
 # 职责   ：主界面纯显示层。
 #          - 连接信号：gold_changed / mech_girl_updated / mech_exp_updated /
 #            level_cleared / level_progress_changed / idle_rewards_updated /
 #            exp_balance_updated / diamond_changed / fragments_updated / owned_mechs_updated /
-#            battle_star / mech_star_updated
+#            battle_star / mech_star_updated / stamina_changed / box_count_changed /
+#            bag_updated / box_opened
 #          - 按钮只调入口（契约 §3.6）：升级 → Game.upgrade(id)；升星 → Game.upgrade_star(id)；
 #            收获 → Game.collect_idle()；挑战 → Game.start_battle(Game.get_next_level())（v0.9 主线
-#            不可选关）+ 切到 Battle.tscn；抽卡/布阵 → 切到 Gacha.tscn / Formation.tscn；
+#            不可选关）+ 切到 Battle.tscn；开箱 → Game.open_box()（结果经 box_opened 显示）；
+#            秘境/背包/抽卡/布阵 → 切到 Dungeon.tscn / Bag.tscn / Gacha.tscn / Formation.tscn；
 #            手动存档 → Save.save_game()
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          一切更新值以 Game 信号参数为准，UI 不缓存游戏数值。
@@ -49,10 +51,14 @@ extends Control
 @onready var _gold_balance_label: Label = $root_box/balance_row/gold_balance_label
 @onready var _exp_balance_label: Label = $root_box/balance_row/exp_balance_label
 @onready var _diamond_label: Label = $root_box/balance_row/diamond_label
+@onready var _stamina_label: Label = $root_box/balance_row/stamina_label
 @onready var _challenge_button: Button = $root_box/challenge_button
 @onready var _mech_box: VBoxContainer = $root_box/mech_box
 @onready var _last_clear_label: Label = $root_box/last_clear_label
 @onready var _message_label: Label = $root_box/message_label
+@onready var _dungeon_button: Button = $root_box/feature_row/dungeon_button
+@onready var _bag_button: Button = $root_box/feature_row/bag_button
+@onready var _box_button: Button = $root_box/feature_row/box_button
 @onready var _save_button: Button = $root_box/bottom_row/save_button
 @onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
 @onready var _formation_button: Button = $root_box/bottom_row/formation_button
@@ -74,11 +80,18 @@ func _ready() -> void:
 	Contract.owned_mechs_updated.connect(_on_owned_mechs_updated)
 	Contract.battle_star.connect(_on_battle_star)
 	Contract.mech_star_updated.connect(_on_mech_star_updated)
+	Contract.stamina_changed.connect(_on_stamina_changed)
+	Contract.box_count_changed.connect(_on_box_count_changed)
+	Contract.bag_updated.connect(_on_bag_updated)
+	Contract.box_opened.connect(_on_box_opened)
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_challenge_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
 	_gacha_button.pressed.connect(_on_gacha_pressed)
 	_formation_button.pressed.connect(_on_formation_pressed)
+	_dungeon_button.pressed.connect(_on_dungeon_pressed)
+	_bag_button.pressed.connect(_on_bag_pressed)
+	_box_button.pressed.connect(_on_box_pressed)
 	_rebuild_mech_rows()
 	_seed_initial_state()
 
@@ -138,6 +151,37 @@ func _on_mech_star_updated(id: StringName, _star: int, _level_cap: int) -> void:
 	_refresh_upgrade_buttons()
 
 
+func _on_stamina_changed(value: int) -> void:
+	# v0.13：体力变化（恢复结算/秘境消耗/买体力）
+	_stamina_label.text = "体力 %d/%d" % [value, Data.STAMINA_MAX]
+
+
+func _on_box_count_changed(count: int) -> void:
+	# v0.13：待开箱数变化
+	_box_button.text = "开箱（%d）" % count
+	_box_button.disabled = count <= 0
+
+
+func _on_bag_updated(_items: Dictionary, _capacity: int) -> void:
+	# v0.13：背包变化（主界面无背包展示，预留；背包详情在 Bag 场景）
+	pass
+
+
+func _on_box_opened(reward: Dictionary) -> void:
+	# v0.13：开箱结果展示（实际入账走 gold_changed / bag_updated / fragments_updated）
+	var type: String = str(reward.get("type", ""))
+	var amount: int = int(reward.get("amount", 0))
+	match type:
+		"gold":
+			_message_label.text = "开箱获得 %d 金币！" % amount
+		"material":
+			_message_label.text = "开箱获得 升级材料 ×%d！" % amount
+		"fragment":
+			var mid := StringName(str(reward.get("mech_id", "")))
+			var cfg: Dictionary = Data.MECH_GIRLS.get(mid, {})
+			_message_label.text = "开箱获得 %s碎片 ×%d！" % [str(cfg.get("name", str(mid))), amount]
+
+
 func _on_level_cleared(level: int, first_clear: bool) -> void:
 	# v0.9：首通奖励 = 金币 + 钻石 + 小钰碎片（普通 1 片 / 章节 BOSS 3 片）
 	if first_clear:
@@ -189,6 +233,21 @@ func _on_gacha_pressed() -> void:
 func _on_formation_pressed() -> void:
 	# v0.8：进入布阵界面（战斗 2.0）
 	get_tree().change_scene_to_file("res://scenes/Formation.tscn")
+
+
+func _on_dungeon_pressed() -> void:
+	# v0.13：进入秘境界面
+	get_tree().change_scene_to_file("res://scenes/Dungeon.tscn")
+
+
+func _on_bag_pressed() -> void:
+	# v0.13：进入背包界面
+	get_tree().change_scene_to_file("res://scenes/Bag.tscn")
+
+
+func _on_box_pressed() -> void:
+	# v0.13：开 1 个宝箱（结果由 box_opened 信号回发显示到 message_label）
+	Game.open_box()
 
 
 ## ------------------------------------------------------------------
@@ -415,6 +474,8 @@ func _seed_initial_state() -> void:
 	_gold_label.text = "金币：%d" % Game.gold
 	_idle_rewards_label.text = "待收获：金币 +%d 经验 +%d" % [roundi(Game.idle_pending), roundi(Game.idle_pending_exp)]
 	_diamond_label.text = "钻石：%d" % Game.diamond
+	_stamina_label.text = "体力 %d/%d" % [Game.get_stamina(), Data.STAMINA_MAX]
+	_on_box_count_changed(Game.get_box_count())
 	_refresh_balance()
 	_render_all_rows()
 	_refresh_challenge()
