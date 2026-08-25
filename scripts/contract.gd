@@ -14,6 +14,8 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.15（阶段 3 第三批：商城+设置，设计文档 v0.20）：新增信号 settings_changed /
+#       shop_changed；术语新增 shop / setting。
 #   v0.14（阶段 3 第二批：装备+宝石+强化，设计文档 v0.20）：新增信号 equip_inventory_changed /
 #       equipped_changed / gem_stock_changed；术语新增 equipment / gem / affix / socket / enchant。
 #   v0.13（阶段 3 第一批：体力+秘境+背包+开箱，设计文档 v0.19）：新增信号 stamina_changed /
@@ -58,7 +60,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.14"
+const CONTRACT_VERSION := "v0.15"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -124,6 +126,10 @@ const TERM_AFFIX     := "affix"        # 词条（攻%/血%/防%/速/暴击率/�
 const TERM_SOCKET    := "socket"       # 孔（1星1孔/3星2孔/5星3孔）
 const TERM_ENCHANT   := "enchant"      # 强化（+1~+10，金币+材料）
 
+# ---- 阶段 3 商城/设置术语（设计文档 §5 / §10.9，v0.15）----
+const TERM_SHOP     := "shop"          # 商城（每日商品，0 点刷新限购）
+const TERM_SETTING  := "setting"       # 设置（音效/音乐/2x/语言/存档导出重置）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -171,3 +177,7 @@ signal dungeon_cleared_changed(status: Dictionary)                            # 
 signal equip_inventory_changed(inventory: Array)                              # 装备库变化（掉落/合成/强化后）
 signal equipped_changed(equipped: Dictionary)                                 # 穿戴变化（穿/卸后；属性变化随 mech_girl_updated）
 signal gem_stock_changed(stock: Dictionary)                                   # 宝石库存变化（镶嵌/拆卸/合成后）
+
+# ---- 阶段 3 商城/设置信号（v0.15）----
+signal settings_changed(settings: Dictionary)                                 # 设置变化（设置界面修改后）
+signal shop_changed(items: Array, bought: Dictionary)                         # 商城状态变化（每日刷新/购买后）
