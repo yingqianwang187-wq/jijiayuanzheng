@@ -13,6 +13,11 @@
 # ==================================================================
 extends Node
 
+## 首通掉落小钰碎片（设计文档 §1.3 / 附录 B，v0.15：普通关 1 片、章节 BOSS 关 3 片）。
+## 说明：data.gd 本轮变更单只读，暂以 Game 常量承载；A 可下轮迁入 Data（"数值读 Data"）。
+const FIRST_CLEAR_XIAOYU_FRAGMENT := 1
+const FIRST_CLEAR_XIAOYU_FRAGMENT_BOSS := 3
+
 ## ---------------------------------------------------------------
 ## 当前状态（唯一事实来源；只允许本文件修改）
 ## ---------------------------------------------------------------
@@ -271,16 +276,17 @@ func upgrade(mech_id: StringName) -> void:
 	Save.save_game()
 
 ## ---------------------------------------------------------------
-## 进入关卡，开始自动节拍战斗（契约 §3.6 / §3.9 入口，v0.8 战斗 2.0）
+## 进入关卡，开始自动节拍战斗（契约 §3.6 / §3.9 入口，v0.8 战斗 2.0；v0.9 主线规则）
 ## 签名：start_battle(level: int)
-## 校验：仅接受已解锁的合法关卡（1..MAX_LEVEL 且 <= unlocked_level）
-## 流程：按阵型布阵（formation，空则自动生成）→ 敌方按模板排阵 → 应用开局被动 →
-##       发初始信号 → 启动节拍
+## 主线规则（v0.15）：不可选关——只接受"当前最高未通关的下一关"（get_next_level），
+## 其余关卡（已通关旧关 / 未解锁后关）一律拒绝。
 ## ---------------------------------------------------------------
 func start_battle(level: int) -> void:
 	if not (level is int):
 		return
-	if level < 1 or level > Data.MAX_LEVEL or level > unlocked_level:
+	if level != _next_level():
+		return
+	if level < 1 or level > Data.MAX_LEVEL:
 		return
 	if formation.size() < 2:
 		_ensure_default_formation()
@@ -1035,6 +1041,12 @@ func _resolve_victory() -> void:
 		if diamond_reward > 0:
 			diamond += diamond_reward
 			Contract.diamond_changed.emit(diamond)
+		# 首通掉落小钰碎片（设计文档 §1.3 / 附录 B，v0.15：普通关 1 片、章节 BOSS 关 3 片；一次性）
+		var xiaoyu_frag: int = FIRST_CLEAR_XIAOYU_FRAGMENT
+		if int(Data.CHAPTERS[1].boss_level) == level:
+			xiaoyu_frag = FIRST_CLEAR_XIAOYU_FRAGMENT_BOSS
+		fragments[&"xiao_yu"] = int(fragments.get(&"xiao_yu", 0)) + xiaoyu_frag
+		Contract.fragments_updated.emit(&"xiao_yu", int(fragments[&"xiao_yu"]))
 		# BOSS 关记录
 		if int(Data.CHAPTERS[1].boss_level) == level:
 			cleared_boss[level] = true
@@ -1328,6 +1340,21 @@ func get_owned_mechs() -> Array:
 	return _owned_mech_ids()
 
 ## ---------------------------------------------------------------
+## 只读：主线下一关（契约 §3.6 入口，v0.9 / 设计文档 v0.15）
+## = 当前最高未通关的下一关（第一个未首通的关卡）；全部通关返回 MAX_LEVEL + 1（无下一关）
+## 签名：get_next_level() -> int
+## ---------------------------------------------------------------
+func get_next_level() -> int:
+	return _next_level()
+
+## 内部：第一个未首通关卡
+func _next_level() -> int:
+	for l in range(1, Data.MAX_LEVEL + 1):
+		if not cleared_levels.has(l):
+			return l
+	return Data.MAX_LEVEL + 1
+
+## ---------------------------------------------------------------
 ## 布阵（契约 §3.6 / §3.9 入口，v0.8）：9 格选 ≤5，每格 {id, row, col}
 ## 校验：id 已拥有、row/col 0..2、格不重复、id 不重复
 ## 签名：set_formation(formation: Array)；生效后发 formation_changed
@@ -1428,12 +1455,14 @@ func _apply_battle_timer_speed() -> void:
 		battle_timer.wait_time = Data.BATTLE_TICK_INTERVAL
 
 ## ---------------------------------------------------------------
-## 扫荡已通关关卡（契约 §3.6 / §3.9 入口，v0.8）：跳过战斗直接拿胜利奖励
-## （上阵机娘得 victory_reward_exp；非首通无金币/钻石）
+## 扫荡（契约 §3.6 / §3.9 入口，v0.8；v0.15 主线规则调整）
 ## 签名：sweep_level(level: int)
+## v0.15：主线不允许扫荡（不可重打）——扫荡仅保留给秘境（阶段 3 实装）；
+## 当前 1..MAX_LEVEL 全部为主线关卡，故一律拒绝（保留入口签名，秘境实装后复用）。
 ## ---------------------------------------------------------------
 func sweep_level(level: int) -> void:
-	if not cleared_levels.has(level) or battle.active:
+	if level >= 1 and level <= Data.MAX_LEVEL:
+		Contract.battle_prompt.emit(&"skill", "主线不可扫荡")
 		return
 	var exp_gain: int = int(Data.LEVELS[level].victory_reward_exp)
 	# 扫荡给"上阵机娘"（当前阵型；空则拥有前 5）经验
