@@ -59,6 +59,10 @@ func save_game() -> void:
 		"dungeon_cleared": {},
 		"bag": { "items": {}, "capacity": clampi(int(snapshot.get("bag", {}).get("capacity", Data.BAG_START_CAPACITY)), 0, Data.BAG_MAX_CAPACITY) },
 		"boxes": maxi(int(snapshot.get("boxes", 0)), 0),
+		# v0.14：装备 / 宝石
+		"equip_inventory": [],
+		"equipped": {},
+		"gem_stock": {},
 	}
 	# 背包物品（item_id → count，只认 Data.ITEMS）
 	var bag_src: Dictionary = snapshot.get("bag", {})
@@ -74,6 +78,38 @@ func save_game() -> void:
 			save_dict["dungeon_cleared"][str(kind)] = {}
 			for tier in tier_map:
 				save_dict["dungeon_cleared"][str(kind)][str(tier)] = true
+	# v0.14：装备实例 / 穿戴 / 宝石库存
+	var equip_inventory: Variant = snapshot.get("equip_inventory", [])
+	if equip_inventory is Array:
+		for eq in equip_inventory:
+			if eq is Dictionary and Data.EQUIP_SLOTS.has(StringName(str(eq.get("slot", "")))):
+				var eq_save := {
+					"uid": str(eq.get("uid", "")),
+					"slot": str(eq.get("slot", "")),
+					"star": clampi(int(eq.get("star", 1)), 1, 5),
+					"level": clampi(int(eq.get("level", 0)), 0, Data.ENCHANT_MAX_LEVEL),
+					"gems": [],
+				}
+				var gems: Variant = eq.get("gems", [])
+				if gems is Array:
+					for g in gems:
+						if g is Dictionary and StringName(str(g.get("quality", ""))) in Data.GEM_QUALITIES:
+							eq_save["gems"].append({
+								"quality": str(g.get("quality", "")),
+								"affixes": g.get("affixes", []),
+							})
+				save_dict["equip_inventory"].append(eq_save)
+	var equipped_src: Dictionary = snapshot.get("equipped", {})
+	for mech_id in equipped_src:
+		var slots: Dictionary = equipped_src[mech_id]
+		if slots is Dictionary:
+			save_dict["equipped"][str(mech_id)] = {}
+			for slot_key in slots:
+				save_dict["equipped"][str(mech_id)][str(slot_key)] = str(slots[slot_key])
+	var gem_stock_src: Dictionary = snapshot.get("gem_stock", {})
+	for q in gem_stock_src:
+		if StringName(str(q)) in Data.GEM_QUALITIES:
+			save_dict["gem_stock"][str(q)] = maxi(int(gem_stock_src[q]), 0)
 	var mechs: Dictionary = snapshot.get("mechs", {})
 	for key in mechs:
 		var entry: Dictionary = mechs[key]
@@ -284,6 +320,40 @@ func load_game() -> Dictionary:
 					result["bag"]["items"][str(item_key)] = maxi(int(bag_items[item_key]), 0)
 	if parsed_dict.has("boxes"):
 		result["boxes"] = maxi(int(parsed_dict["boxes"]), 0)
+	# —— v0.14：装备 / 宝石 ——
+	var equip_inventory: Variant = parsed_dict.get("equip_inventory", [])
+	if equip_inventory is Array:
+		for eq in equip_inventory:
+			if eq is Dictionary and Data.EQUIP_SLOTS.has(StringName(str(eq.get("slot", "")))):
+				var eq_load := {
+					"uid": StringName(str(eq.get("uid", ""))),
+					"slot": StringName(str(eq.get("slot", ""))),
+					"star": clampi(int(eq.get("star", 1)), 1, 5),
+					"level": clampi(int(eq.get("level", 0)), 0, Data.ENCHANT_MAX_LEVEL),
+					"gems": [],
+				}
+				var gems: Variant = eq.get("gems", [])
+				if gems is Array:
+					for g in gems:
+						if g is Dictionary and StringName(str(g.get("quality", ""))) in Data.GEM_QUALITIES:
+							eq_load["gems"].append({
+								"quality": StringName(str(g.get("quality", ""))),
+								"affixes": g.get("affixes", []),
+							})
+				result["equip_inventory"].append(eq_load)
+	var equipped_src: Variant = parsed_dict.get("equipped", {})
+	if equipped_src is Dictionary:
+		for mech_id in equipped_src:
+			var slots: Variant = equipped_src[mech_id]
+			if slots is Dictionary:
+				result["equipped"][StringName(str(mech_id))] = {}
+				for slot_key in slots:
+					result["equipped"][StringName(str(mech_id))][StringName(str(slot_key))] = StringName(str(slots[slot_key]))
+	var gem_stock_src: Variant = parsed_dict.get("gem_stock", {})
+	if gem_stock_src is Dictionary:
+		for q in gem_stock_src:
+			if StringName(str(q)) in Data.GEM_QUALITIES:
+				result["gem_stock"][StringName(str(q))] = maxi(int(gem_stock_src[q]), 0)
 	return result
 
 ## 默认档数据（契约 §3.2，v0.10）：开局资源 = 金币 1000 + 钻石 300（仅新档，v0.18）、
@@ -327,4 +397,8 @@ func _default_data() -> Dictionary:
 		"dungeon_cleared": {},
 		"bag": { "items": {}, "capacity": Data.BAG_START_CAPACITY },
 		"boxes": 0,
+		# v0.14：装备 / 宝石（默认空）
+		"equip_inventory": [],
+		"equipped": {},
+		"gem_stock": {},
 	}

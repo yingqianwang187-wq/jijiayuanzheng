@@ -159,6 +159,8 @@ func _reward_text(kind: String, amount: int) -> String:
 		"exp": return "经验 +%d（上阵机娘个人条）" % amount
 		"material": return "升级材料 ×%d" % amount
 		"fragment": return "机娘碎片 +%d" % amount
+		"equipment": return "装备 ×%d" % amount
+		"gem": return "宝石 ×%d" % amount
 	return "%s ×%d" % [kind, amount]
 
 

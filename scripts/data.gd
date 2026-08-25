@@ -182,11 +182,11 @@ const DUNGEONS := {
 	&"equip": {
 		"name": "装备副本",
 		"tiers": [
-			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "material", "amount": 2 } },
-			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "material", "amount": 5 } },
-			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "material", "amount": 12 } },
-			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "material", "amount": 25 } },
-			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "material", "amount": 50 } },
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "equip", "amount": 1 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "equip", "amount": 1 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "equip", "amount": 1 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "equip", "amount": 1 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "equip", "amount": 1 } },
 		],
 		"waves": [
 			[ { "id": &"dq0_g1", "name": "秘境守备兵", "tier": "normal", "class": "tank", "atk": 13, "hp": 180, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] } ],
@@ -199,11 +199,11 @@ const DUNGEONS := {
 	&"gem": {
 		"name": "宝石副本",
 		"tiers": [
-			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "material", "amount": 2 } },
-			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "material", "amount": 5 } },
-			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "material", "amount": 12 } },
-			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "material", "amount": 25 } },
-			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "material", "amount": 50 } },
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "gem", "amount": 2 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "gem", "amount": 3 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "gem", "amount": 3 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "gem", "amount": 4 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "gem", "amount": 5 } },
 		],
 		"waves": [
 			[ { "id": &"db0_g1", "name": "秘境守备兵", "tier": "normal", "class": "mage", "atk": 16, "hp": 130, "def": 4, "spd": 6, "skills": [&"enemy_shot"] } ],
@@ -240,12 +240,13 @@ const BAG_EXPAND_AMOUNT := 10           # 扩容 +10 格
 const BAG_EXPAND_BASE_COST := 1000      # 第 1 次扩容 1000 金币，之后翻倍
 const BAG_MAX_CAPACITY := 300           # 上限 300 格
 
-## 道具表（v0.13：本轮仅库存/计数展示，道具使用后续批次）
+## 道具表（v0.13：本轮仅库存/计数展示，道具使用后续批次；material_common 供装备强化，v0.14）
 const ITEMS := {
 	&"exp_potion": { "name": "经验药水", "type": "exp" },
 	&"stamina_item": { "name": "体力道具", "type": "stamina" },
 	&"speed_item": { "name": "加速道具", "type": "speed" },
 	&"material": { "name": "升级材料", "type": "material" },
+	&"material_common": { "name": "通用材料", "type": "material" },
 }
 
 # ------------------------------------------------------------------
@@ -262,6 +263,77 @@ const BOX_WEIGHT_FRAGMENT_SSR := 0.01
 const BOX_GOLD_AMOUNT := 500
 const BOX_MATERIAL_AMOUNT := 3
 const BOX_FRAGMENT_AMOUNT := { Rarity.R: 10, Rarity.SR: 20, Rarity.SSR: 50 }
+
+# ------------------------------------------------------------------
+# 装备与宝石系统（设计文档 §2.6 / §10.6，v0.14；数值为推荐值【待确认】）
+# ------------------------------------------------------------------
+
+## 装备部位表：固定属性（stat + 随星级的 base 起始值 + per_star 每星增量）
+##   百分比类（atk_pct/hp_pct/def_pct/crit_rate/crit_dmg/dodge）乘/加基础；
+##   数值类（atk/def/hp/spd）直接加
+const EQUIP_SLOTS := {
+	&"weapon": {
+		"name": "武器",
+		"stats": [
+			{ "stat": "atk_pct", "base": 0.05, "per_star": 0.05 },
+			{ "stat": "crit_rate", "base": 0.01, "per_star": 0.01 },
+			{ "stat": "crit_dmg", "base": 0.10, "per_star": 0.10 },
+		],
+	},
+	&"armor": {
+		"name": "装甲",
+		"stats": [
+			{ "stat": "hp_pct", "base": 0.05, "per_star": 0.05 },
+			{ "stat": "def", "base": 10, "per_star": 10 },
+		],
+	},
+	&"legs": {
+		"name": "护腿",
+		"stats": [
+			{ "stat": "def_pct", "base": 0.05, "per_star": 0.05 },
+			{ "stat": "hp", "base": 50, "per_star": 50 },
+		],
+	},
+	&"boots": {
+		"name": "战靴",
+		"stats": [
+			{ "stat": "spd", "base": 2, "per_star": 2 },
+			{ "stat": "dodge", "base": 0.01, "per_star": 0.01 },
+			{ "stat": "atk_pct", "base": 0.03, "per_star": 0.03 },
+		],
+	},
+}
+
+## 强化（设计文档 §10.6：+1~+10，金币 + 材料 material_common，属性比例成长）
+const ENCHANT_MAX_LEVEL := 10
+const ENCHANT_GOLD_BASE := 200          # 强化费用：base × growth^level
+const ENCHANT_GOLD_GROWTH := 1.5
+const ENCHANT_MATERIAL_PER_LEVEL := 1   # 每级 1 个 material_common
+const ENCHANT_STAT_GROWTH := 0.10       # 每级装备固定属性 +10%（比例成长）
+
+## 宝石品质（6 品：白 < 绿 < 蓝 < 紫 < 金 < 红；index 0~5）
+const GEM_QUALITIES := [&"white", &"green", &"blue", &"purple", &"gold", &"red"]
+const GEM_SECOND_AFFIX_CHANCE := 0.5    # 镶嵌保底 1 条、50% 概率出第 2 条（推荐值）
+
+## 装备孔数随星级（1星1孔 / 3星2孔 / 5星3孔；2/4 星同前一级）
+const GEM_SOCKETS := { 1: 1, 2: 1, 3: 2, 4: 2, 5: 3 }
+
+## 词条池与数值区间（按品质 index 0~5 取 [min, max]；词条品质 ≤ 宝石品质）
+const GEM_AFFIX_POOL := {
+	&"atk_pct": { "name": "攻击%", "values": [ [0.01, 0.02], [0.02, 0.03], [0.03, 0.05], [0.04, 0.06], [0.06, 0.09], [0.09, 0.12] ] },
+	&"hp_pct": { "name": "血量%", "values": [ [0.01, 0.02], [0.02, 0.03], [0.03, 0.05], [0.04, 0.06], [0.06, 0.09], [0.09, 0.12] ] },
+	&"def_pct": { "name": "防御%", "values": [ [0.01, 0.02], [0.02, 0.03], [0.03, 0.05], [0.04, 0.06], [0.06, 0.09], [0.09, 0.12] ] },
+	&"spd": { "name": "速度", "values": [ [0.5, 1.0], [1.0, 1.5], [1.5, 2.0], [2.0, 2.5], [2.5, 3.0], [3.0, 4.0] ] },
+	&"crit_rate": { "name": "暴击率", "values": [ [0.005, 0.01], [0.01, 0.015], [0.015, 0.02], [0.02, 0.03], [0.03, 0.04], [0.04, 0.05] ] },
+	&"crit_dmg": { "name": "暴击伤害", "values": [ [0.02, 0.04], [0.04, 0.06], [0.06, 0.10], [0.10, 0.14], [0.14, 0.20], [0.20, 0.25] ] },
+	&"dodge": { "name": "闪避", "values": [ [0.005, 0.01], [0.01, 0.015], [0.015, 0.02], [0.02, 0.03], [0.03, 0.04], [0.04, 0.05] ] },
+}
+
+## 秘境装备/宝石副本掉落（设计文档 §10.1，v0.14 替换材料占位为真装备/真宝石）
+##   装备：star = 1 + tier/2（tier0-1→1星、tier2-3→2星、tier4→3星）
+##   宝石：quality 按档位 white/green/blue/purple/purple
+const DUNGEON_EQUIP_STAR_TIERS := [1, 1, 2, 2, 3]
+const DUNGEON_GEM_QUALITY_TIERS := [0, 1, 2, 3, 3]
 
 # ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）

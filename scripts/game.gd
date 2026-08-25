@@ -61,6 +61,12 @@ var dungeon_attempted: Dictionary = {}            # {kind: {tier: true}} 秘境�
 var bag: Dictionary = { "items": {}, "capacity": Data.BAG_START_CAPACITY }  # 背包 {items:{item_id:count}, capacity}
 var boxes: int = 0                                # 待开箱数
 
+## v0.14：装备 / 宝石
+var equip_inventory: Array = []                   # 装备库 [{uid, slot, star(1~5), level(0~10), gems:[{quality, affixes:[{stat,value}]}]}]
+var equipped: Dictionary = {}                     # 穿戴 {mech_id: {slot: uid}}
+var gem_stock: Dictionary = {}                    # 宝石库存 {quality_name: count}
+var _equip_uid_seed: int = 1                      # 装备 uid 自增种子（load 后扫描库存续号）
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -224,6 +230,44 @@ func _load_initial_state() -> void:
 				if Data.ITEMS.has(StringName(str(item_key))):
 					bag["items"][str(item_key)] = maxi(int(bag_items[item_key]), 0)
 	boxes = maxi(int(data.get("boxes", 0)), 0)
+	# —— v0.14：装备 / 宝石 ——
+	equip_inventory = []
+	var eq_data: Variant = data.get("equip_inventory", [])
+	if eq_data is Array:
+		for eq in eq_data:
+			if eq is Dictionary and Data.EQUIP_SLOTS.has(StringName(str(eq.get("slot", "")))):
+				var eq_load := {
+					"uid": StringName(str(eq.get("uid", ""))),
+					"slot": StringName(str(eq.get("slot", ""))),
+					"star": clampi(int(eq.get("star", 1)), 1, 5),
+					"level": clampi(int(eq.get("level", 0)), 0, Data.ENCHANT_MAX_LEVEL),
+					"gems": [],
+				}
+				var eq_gems: Variant = eq.get("gems", [])
+				if eq_gems is Array:
+					for g in eq_gems:
+						if g is Dictionary and StringName(str(g.get("quality", ""))) in Data.GEM_QUALITIES:
+							eq_load["gems"].append({
+								"quality": StringName(str(g.get("quality", ""))),
+								"affixes": g.get("affixes", []),
+							})
+				equip_inventory.append(eq_load)
+	equipped.clear()
+	var equipped_data: Variant = data.get("equipped", {})
+	if equipped_data is Dictionary:
+		for mech_id in equipped_data:
+			var slot_map: Variant = equipped_data[mech_id]
+			if slot_map is Dictionary and owned_mechs.has(StringName(str(mech_id))):
+				equipped[StringName(str(mech_id))] = {}
+				for slot_key in slot_map:
+					equipped[StringName(str(mech_id))][StringName(str(slot_key))] = StringName(str(slot_map[slot_key]))
+	gem_stock.clear()
+	var gem_data: Variant = data.get("gem_stock", {})
+	if gem_data is Dictionary:
+		for q in gem_data:
+			if StringName(str(q)) in Data.GEM_QUALITIES:
+				gem_stock[StringName(str(q))] = maxi(int(gem_data[q]), 0)
+	_init_equip_uid_seed()
 	# 每日重置（跨日清体力购买次数）+ 离线体力恢复结算
 	_check_daily_reset()
 	_recover_stamina()
@@ -261,9 +305,14 @@ func _emit_initial_state() -> void:
 	Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
 	Contract.box_count_changed.emit(boxes)
 	Contract.dungeon_cleared_changed.emit(get_dungeon_status())
+	# v0.14：装备 / 宝石
+	Contract.equip_inventory_changed.emit(equip_inventory)
+	Contract.equipped_changed.emit(equipped)
+	Contract.gem_stock_changed.emit(gem_stock)
 
-## 由 Data 基础值 + 当前等级 + 星级计算机娘完整属性（hp 为满血）
+## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
+## 装备加成（v0.14）：百分比乘基础、数值直接加；crit_rate/crit_dmg/dodge 供战斗判定
 func _mech_stats(mech_id: StringName) -> Dictionary:
 	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
 	var level: int = int(mech_levels.get(mech_id, 1))
@@ -271,14 +320,51 @@ func _mech_stats(mech_id: StringName) -> Dictionary:
 	var g: Dictionary = cfg.growth
 	var spd_gain: int = floori(float(level - 1) / float(g.spd_every)) * int(g.spd_amount)
 	var star_mult: float = pow(1.0 + Data.STAR_STAT_GAIN, float(star - 1))
+	var base_hp: float = float(int(cfg.base_hp) + (level - 1) * int(g.hp)) * star_mult
+	var base_atk: float = float(int(cfg.base_atk) + (level - 1) * int(g.atk)) * star_mult
+	var base_def: float = float(int(cfg.base_def) + (level - 1) * int(g.def)) * star_mult
+	var base_spd: float = float(int(cfg.base_spd) + spd_gain) * star_mult
+	var es := _mech_equip_stats(mech_id)
 	return {
 		"level": level,
 		"star": star,
-		"hp": int(round(float(int(cfg.base_hp) + (level - 1) * int(g.hp)) * star_mult)),
-		"atk": int(round(float(int(cfg.base_atk) + (level - 1) * int(g.atk)) * star_mult)),
-		"def": int(round(float(int(cfg.base_def) + (level - 1) * int(g.def)) * star_mult)),
-		"spd": int(round(float(int(cfg.base_spd) + spd_gain) * star_mult)),
+		"hp": int(round(base_hp * (1.0 + float(es.hp_pct)) + float(es.hp))),
+		"atk": int(round(base_atk * (1.0 + float(es.atk_pct)) + float(es.atk))),
+		"def": int(round(base_def * (1.0 + float(es.def_pct)) + float(es.def))),
+		"spd": int(round(base_spd + float(es.spd))),
+		"crit_rate": float(es.crit_rate),
+		"crit_dmg": float(es.crit_dmg),
+		"dodge": float(es.dodge),
 	}
+
+## 该机娘穿戴装备的属性合计（v0.14）
+func _mech_equip_stats(mech_id: StringName) -> Dictionary:
+	var total := { "atk": 0, "hp": 0, "def": 0, "spd": 0, "atk_pct": 0.0, "hp_pct": 0.0, "def_pct": 0.0, "crit_rate": 0.0, "crit_dmg": 0.0, "dodge": 0.0 }
+	if not equipped.has(mech_id):
+		return total
+	for slot_key in equipped[mech_id]:
+		var eq := _find_equip(StringName(str(equipped[mech_id][slot_key])))
+		if eq.is_empty():
+			continue
+		var eq_stats := _equip_total_stats(eq)
+		for stat in eq_stats:
+			total[stat] = float(total.get(stat, 0.0)) + float(eq_stats[stat])
+	return total
+
+## 单件装备总属性（部位固定属性 × 强化成长 + 宝石词条；v0.14）
+func _equip_total_stats(eq: Dictionary) -> Dictionary:
+	var total := { "atk": 0, "hp": 0, "def": 0, "spd": 0, "atk_pct": 0.0, "hp_pct": 0.0, "def_pct": 0.0, "crit_rate": 0.0, "crit_dmg": 0.0, "dodge": 0.0 }
+	var slot_cfg: Dictionary = Data.EQUIP_SLOTS[StringName(str(eq.slot))]
+	var star: int = int(eq.star)
+	var enchant_mult: float = 1.0 + float(int(eq.level)) * Data.ENCHANT_STAT_GROWTH
+	for st in slot_cfg.stats:
+		var value: float = (float(st.base) + float(star - 1) * float(st.per_star)) * enchant_mult
+		total[str(st.stat)] = float(total.get(str(st.stat), 0.0)) + value
+	for g in eq.gems:
+		for affix in g.affixes:
+			var stat_name: String = str(affix.stat)
+			total[stat_name] = float(total.get(stat_name, 0.0)) + float(affix.value)
+	return total
 
 ## 等级上限（v0.10）：基础 100 + 星级>5 每星 +20（最高 200）
 func get_level_cap(mech_id: StringName) -> int:
@@ -445,6 +531,9 @@ func _build_mech_unit(mech_id: StringName, row: int, col: int) -> Dictionary:
 		"energy": 0, "cd_1": 0, "cd_2": 0,
 		"statuses": {}, "buffs": {}, "shield": 0, "taunt_turns": 0, "dodge_crit_ready": false,
 		"alive": true, "dmg_dealt": 0, "heal_done": 0,
+		"crit_rate": float(s.get("crit_rate", 0.0)),
+		"crit_dmg": float(s.get("crit_dmg", 0.0)),
+		"dodge": float(s.get("dodge", 0.0)),
 		"passive": cfg.passive, "skills": cfg.skills, "ultimate": cfg.ultimate,
 	}
 
@@ -666,7 +755,7 @@ func _deal_damage(attacker, target, rate: float, skill, is_ultimate: bool, allow
 	dmg *= _counter_mult(str(attacker.class), str(target.class))
 	var crit: bool = _roll_crit(attacker)
 	if crit:
-		var crit_mult: float = Data.CRIT_DAMAGE_MULT
+		var crit_mult: float = Data.CRIT_DAMAGE_MULT + float(attacker.get("crit_dmg", 0.0))
 		if skill != null:
 			for b in skill.get("bonus", []):
 				if str(b.kind) == "crit_bonus":
@@ -814,20 +903,20 @@ func _emit_hp(unit) -> void:
 	else:
 		Contract.enemy_updated.emit(unit.id, int(unit.hp))
 
-## 暴击判定（基础 10% + 被动 + 闪避联动必暴击）
+## 暴击判定（基础 10% + 装备 + 被动 + 闪避联动必暴击）
 func _roll_crit(attacker) -> bool:
 	if bool(attacker.dodge_crit_ready):
 		attacker.dodge_crit_ready = false
 		return true
-	var rate: float = Data.CRIT_RATE_BASE
+	var rate: float = Data.CRIT_RATE_BASE + float(attacker.get("crit_rate", 0.0))
 	for eff in attacker.passive.effects:
 		if str(eff.kind) == "crit_rate":
 			rate += float(eff.value)
 	return randf() < rate
 
-## 闪避判定（基础 5% + 增益/被动）
+## 闪避判定（基础 5% + 装备 + 增益/被动）
 func _roll_dodge(target) -> bool:
-	var rate: float = Data.DODGE_RATE_BASE + _total_buff(target, "dodge")
+	var rate: float = Data.DODGE_RATE_BASE + _total_buff(target, "dodge") + float(target.get("dodge", 0.0))
 	for eff in target.passive.effects:
 		if str(eff.kind) == "dodge" or str(eff.kind) == "dodge_crit":
 			rate += float(eff.value)
@@ -1663,6 +1752,266 @@ func get_power(mech_id: StringName) -> int:
 	return int(s.atk) * Data.POWER_ATK_W + int(s.hp) * Data.POWER_HP_W + int(s.def) * Data.POWER_DEF_W + int(s.spd) * Data.POWER_SPD_W
 
 ## ================================================================
+## v0.14：装备 / 宝石 / 强化（契约 §3.11 / 设计文档 §2.6 / §10.6）
+## ================================================================
+## 装备实例：{uid, slot, star(1~5), level(0~10), gems:[{quality, affixes:[{stat,value}]}]}
+
+## uid 生成（load 后扫描库存续号，保证刷新后不撞 uid）
+func _gen_equip_uid() -> StringName:
+	var uid := StringName("eq_" + str(_equip_uid_seed))
+	_equip_uid_seed += 1
+	return uid
+
+func _init_equip_uid_seed() -> void:
+	var max_seed := 0
+	for eq in equip_inventory:
+		var uid_str: String = str(eq.uid)
+		if uid_str.begins_with("eq_"):
+			max_seed = maxi(max_seed, uid_str.substr(3).to_int())
+	_equip_uid_seed = max_seed + 1
+
+## 按 uid 找装备（空字典 = 不存在）
+func _find_equip(uid: StringName) -> Dictionary:
+	for eq in equip_inventory:
+		if StringName(str(eq.uid)) == uid:
+			return eq
+	return {}
+
+## 该装备的穿戴者（空 = 未穿戴）
+func _equip_wearer(uid: StringName) -> StringName:
+	for mid in equipped:
+		if equipped[mid].values().has(uid):
+			return StringName(mid)
+	return &""
+
+func _is_equip_equipped(uid: StringName) -> bool:
+	return not _equip_wearer(uid).is_empty()
+
+## 生成装备实例（掉落用）
+func _spawn_equip(slot: StringName, star: int) -> Dictionary:
+	return { "uid": _gen_equip_uid(), "slot": slot, "star": clampi(star, 1, 5), "level": 0, "gems": [] }
+
+## 随机部位
+func _random_slot() -> StringName:
+	var slots := Data.EQUIP_SLOTS.keys()
+	return StringName(str(slots[randi() % slots.size()]))
+
+## 穿戴后通知机娘属性变化（mech_girl_updated）
+func _emit_mech_after_equip(mech_id: StringName) -> void:
+	var s := _mech_stats(mech_id)
+	Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
+
+## ---------------------------------------------------------------
+## 穿装备（契约 §3.6 入口，v0.14）：任意机娘可穿任意装备；同部位旧装备自动卸下
+## 签名：equip(mech_id: StringName, uid: StringName)
+## ---------------------------------------------------------------
+func equip(mech_id: StringName, uid: StringName) -> void:
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+		return
+	var eq := _find_equip(uid)
+	if eq.is_empty() or _is_equip_equipped(uid):
+		return
+	var slot := StringName(str(eq.slot))
+	if not equipped.has(mech_id):
+		equipped[mech_id] = {}
+	if equipped[mech_id].has(slot):
+		equipped[mech_id].erase(slot)
+	equipped[mech_id][slot] = uid
+	Contract.equipped_changed.emit(equipped)
+	_emit_mech_after_equip(mech_id)
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 卸装备（契约 §3.6 入口，v0.14）
+## 签名：unequip(mech_id: StringName, slot: StringName)
+## ---------------------------------------------------------------
+func unequip(mech_id: StringName, slot: StringName) -> void:
+	if not equipped.has(mech_id) or not equipped[mech_id].has(slot):
+		return
+	equipped[mech_id].erase(slot)
+	Contract.equipped_changed.emit(equipped)
+	_emit_mech_after_equip(mech_id)
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 只读：装备库（契约 §3.6 入口，v0.14）
+## 签名：get_equip_inventory() -> Array
+## ---------------------------------------------------------------
+func get_equip_inventory() -> Array:
+	return equip_inventory
+
+## ---------------------------------------------------------------
+## 只读：穿戴映射（契约 §3.6 入口，v0.14）
+## 签名：get_equipped() -> Dictionary
+## ---------------------------------------------------------------
+func get_equipped() -> Dictionary:
+	return equipped
+
+## ---------------------------------------------------------------
+## 只读：单件装备总属性面板（契约 §3.6 入口，v0.14；部位+强化+宝石）
+## 签名：get_equip_stats(uid: StringName) -> Dictionary
+## ---------------------------------------------------------------
+func get_equip_stats(uid: StringName) -> Dictionary:
+	var eq := _find_equip(uid)
+	if eq.is_empty():
+		return {}
+	return _equip_total_stats(eq)
+
+## ---------------------------------------------------------------
+## 合成装备（契约 §3.6 入口，v0.14）：3 件同星（未穿戴）合 1 件高星
+## 合成前自动拆下宝石回库存（宝石不丢）；结果 = 第一件部位、星级+1、强化归 0
+## 签名：combine_equip(uids: Array)
+## ---------------------------------------------------------------
+func combine_equip(uids: Array) -> void:
+	if not (uids is Array) or uids.size() != 3:
+		return
+	var eqs: Array = []
+	var star: int = -1
+	for uid in uids:
+		var eq := _find_equip(StringName(str(uid)))
+		if eq.is_empty() or _is_equip_equipped(StringName(str(uid))):
+			return
+		if star == -1:
+			star = int(eq.star)
+		elif int(eq.star) != star:
+			return
+		eqs.append(eq)
+	if star < 1 or star >= 5:
+		return
+	# 拆宝石回库存
+	for eq in eqs:
+		_unsocket_all_gems(eq)
+	var new_slot := StringName(str(eqs[0].slot))
+	for eq in eqs:
+		equip_inventory.erase(eq)
+	var new_eq := _spawn_equip(new_slot, star + 1)
+	equip_inventory.append(new_eq)
+	Contract.equip_inventory_changed.emit(equip_inventory)
+	Contract.gem_stock_changed.emit(gem_stock)
+	Save.save_game()
+
+func _unsocket_all_gems(eq: Dictionary) -> void:
+	for g in eq.gems:
+		var quality := StringName(str(g.quality))
+		gem_stock[quality] = int(gem_stock.get(quality, 0)) + 1
+	eq.gems = []
+
+## ---------------------------------------------------------------
+## 只读：强化费用（契约 §3.6 入口，v0.14；金币 + 材料 material_common）
+## 签名：upgrade_equip_cost(uid: StringName) -> Dictionary（{gold, material}）
+## ---------------------------------------------------------------
+func upgrade_equip_cost(uid: StringName) -> Dictionary:
+	var eq := _find_equip(uid)
+	if eq.is_empty() or int(eq.level) >= Data.ENCHANT_MAX_LEVEL:
+		return { "gold": 0, "material": 0 }
+	var level: int = int(eq.level)
+	var gold_cost: int = roundi(float(Data.ENCHANT_GOLD_BASE) * pow(Data.ENCHANT_GOLD_GROWTH, float(level)))
+	return { "gold": gold_cost, "material": Data.ENCHANT_MATERIAL_PER_LEVEL }
+
+## ---------------------------------------------------------------
+## 强化（契约 §3.6 入口，v0.14）：+1~+10，扣金币 + material_common，属性比例成长
+## 签名：upgrade_equip(uid: StringName)
+## ---------------------------------------------------------------
+func upgrade_equip(uid: StringName) -> void:
+	var cost := upgrade_equip_cost(uid)
+	if int(cost.gold) <= 0:
+		return
+	var mat: int = int(bag["items"].get("material_common", 0))
+	if gold < int(cost.gold) or mat < int(cost.material):
+		return
+	gold -= int(cost.gold)
+	bag["items"]["material_common"] = mat - int(cost.material)
+	var eq := _find_equip(uid)
+	eq.level = int(eq.level) + 1
+	Contract.gold_changed.emit(gold)
+	Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+	Contract.equip_inventory_changed.emit(equip_inventory)
+	var wearer := _equip_wearer(uid)
+	if not wearer.is_empty():
+		_emit_mech_after_equip(wearer)
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 镶嵌宝石（契约 §3.6 入口，v0.14）：扣库存 → 随机词条（保底 1、50% 概率第 2 条）→ 入孔
+## 签名：socket_gem(uid: StringName, quality: StringName)
+## ---------------------------------------------------------------
+func socket_gem(uid: StringName, quality: StringName) -> void:
+	var eq := _find_equip(uid)
+	if eq.is_empty():
+		return
+	var q_idx: int = Data.GEM_QUALITIES.find(quality)
+	if q_idx < 0 or int(gem_stock.get(quality, 0)) <= 0:
+		return
+	var star: int = int(eq.star)
+	if eq.gems.size() >= int(Data.GEM_SOCKETS.get(star, 1)):
+		return
+	gem_stock[quality] = int(gem_stock.get(quality, 0)) - 1
+	eq.gems.append({ "quality": quality, "affixes": _roll_gem_affixes(q_idx) })
+	Contract.gem_stock_changed.emit(gem_stock)
+	Contract.equip_inventory_changed.emit(equip_inventory)
+	var wearer := _equip_wearer(uid)
+	if not wearer.is_empty():
+		_emit_mech_after_equip(wearer)
+	Save.save_game()
+
+## 生成宝石词条（保底 1 条、概率第 2 条；数值按品质区间）
+func _roll_gem_affixes(quality_idx: int) -> Array:
+	var affixes: Array = []
+	var pool_keys := Data.GEM_AFFIX_POOL.keys()
+	var first := StringName(str(pool_keys[randi() % pool_keys.size()]))
+	var cfg1: Dictionary = Data.GEM_AFFIX_POOL[first]
+	var r1: Array = cfg1.values[quality_idx]
+	affixes.append({ "stat": first, "value": float(r1[0]) + randf() * (float(r1[1]) - float(r1[0])) })
+	if randf() < Data.GEM_SECOND_AFFIX_CHANCE:
+		var second := StringName(str(pool_keys[randi() % pool_keys.size()]))
+		var cfg2: Dictionary = Data.GEM_AFFIX_POOL[second]
+		var r2: Array = cfg2.values[quality_idx]
+		affixes.append({ "stat": second, "value": float(r2[0]) + randf() * (float(r2[1]) - float(r2[0])) })
+	return affixes
+
+## ---------------------------------------------------------------
+## 拆卸宝石（契约 §3.6 入口，v0.14）：免费拆卸，品级返还库存（词条丢弃）
+## 签名：unsocket_gem(uid: StringName, idx: int)
+## ---------------------------------------------------------------
+func unsocket_gem(uid: StringName, idx: int) -> void:
+	var eq := _find_equip(uid)
+	if eq.is_empty() or idx < 0 or idx >= eq.gems.size():
+		return
+	var g: Dictionary = eq.gems[idx]
+	var quality := StringName(str(g.quality))
+	gem_stock[quality] = int(gem_stock.get(quality, 0)) + 1
+	eq.gems.remove_at(idx)
+	Contract.gem_stock_changed.emit(gem_stock)
+	Contract.equip_inventory_changed.emit(equip_inventory)
+	var wearer := _equip_wearer(uid)
+	if not wearer.is_empty():
+		_emit_mech_after_equip(wearer)
+	Save.save_game()
+
+## ---------------------------------------------------------------
+## 只读：宝石库存（契约 §3.6 入口，v0.14）
+## 签名：get_gem_stock() -> Dictionary
+## ---------------------------------------------------------------
+func get_gem_stock() -> Dictionary:
+	return gem_stock
+
+## ---------------------------------------------------------------
+## 宝石合成（契约 §3.6 入口，v0.14）：3 个同品质合 1 个高品（红最高不可合）
+## 签名：combine_gems(quality: StringName)
+## ---------------------------------------------------------------
+func combine_gems(quality: StringName) -> void:
+	var q_idx: int = Data.GEM_QUALITIES.find(quality)
+	if q_idx < 0 or q_idx >= Data.GEM_QUALITIES.size() - 1:
+		return
+	if int(gem_stock.get(quality, 0)) < 3:
+		return
+	gem_stock[quality] = int(gem_stock.get(quality, 0)) - 3
+	var next_q := StringName(str(Data.GEM_QUALITIES[q_idx + 1]))
+	gem_stock[next_q] = int(gem_stock.get(next_q, 0)) + 1
+	Contract.gem_stock_changed.emit(gem_stock)
+	Save.save_game()
+
+## ================================================================
 ## v0.13：体力（契约 §3.10 / 设计文档 §3.8）
 ## ================================================================
 ## 只读：当前体力（先做每日重置 + 离线/在线恢复结算）
@@ -1871,6 +2220,18 @@ func _grant_dungeon_reward(kind: StringName, tier: int, exp_ids: Array) -> Dicti
 		"material":
 			bag["items"]["material"] = int(bag["items"].get("material", 0)) + amount
 			Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+		"equip":
+			# 真装备掉落（v0.14）：star 按档位（1~3 星），数量 amount
+			for i in amount:
+				var eq := _spawn_equip(_random_slot(), int(Data.DUNGEON_EQUIP_STAR_TIERS[tier]))
+				equip_inventory.append(eq)
+			Contract.equip_inventory_changed.emit(equip_inventory)
+		"gem":
+			# 真宝石掉落（v0.14）：品质按档位（白~紫）
+			var q_idx: int = int(Data.DUNGEON_GEM_QUALITY_TIERS[tier])
+			var q := StringName(str(Data.GEM_QUALITIES[q_idx]))
+			gem_stock[q] = int(gem_stock.get(q, 0)) + amount
+			Contract.gem_stock_changed.emit(gem_stock)
 		"fragment":
 			var target_id := _random_mech_of_rarity(Data.Rarity.R)
 			fragments[target_id] = int(fragments.get(target_id, 0)) + amount
@@ -2005,4 +2366,8 @@ func get_save_snapshot() -> Dictionary:
 		"dungeon_cleared": dungeon_cleared,
 		"bag": bag,
 		"boxes": boxes,
+		# v0.14：装备 / 宝石
+		"equip_inventory": equip_inventory,
+		"equipped": equipped,
+		"gem_stock": gem_stock,
 	}
