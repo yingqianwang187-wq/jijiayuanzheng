@@ -14,6 +14,9 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.13（阶段 3 第一批：体力+秘境+背包+开箱，设计文档 v0.19）：新增信号 stamina_changed /
+#       bag_updated / box_count_changed / dungeon_reward / dungeon_cleared_changed；
+#       术语新增 stamina / dungeon / bag / box / item。
 #   v0.12（规则澄清，设计文档 v0.19）："被控不加能量"含受击（被控期间受击也不加能量，
 #       措辞澄清，实现已符合）；"追击同排"= 同一列（派单 B 改 game.gd 追击按列匹配）。
 #       无新信号 / 新常量 / 新入口。
@@ -53,7 +56,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.12"
+const CONTRACT_VERSION := "v0.13"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -105,6 +108,13 @@ const TERM_STAR           := "star"      # 关卡星级（1~3 星）
 const TERM_STAR_UPGRADE   := "star_upgrade"  # 机娘升星（1~10 星）
 const TERM_LEVEL_CAP      := "level_cap"     # 等级上限（基础 100，星突破每星 +20）
 
+# ---- 阶段 3 术语（设计文档 §3.8 / §7 / §10.1 / §6，v0.13）----
+const TERM_STAMINA := "stamina"        # 体力（秘境消耗；上限 100、5 分钟回 1、满上限停恢复）
+const TERM_DUNGEON := "dungeon"        # 秘境（金币/经验/装备/宝石/碎片 × 5 档战力门槛）
+const TERM_BAG     := "bag"            # 背包（道具/材料/碎片/装备库存；初始 50 格可扩容至 300）
+const TERM_BOX     := "box"            # 开箱（关卡/任务发放的宝箱，直接开）
+const TERM_ITEM    := "item"           # 道具（背包物品：经验药水/体力道具/加速道具/材料）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -139,3 +149,11 @@ signal battle_prompt(kind: StringName, text: String)                       # 战
 signal battle_star(star: int)                                              # 关卡星级评价（1~3 星）
 signal formation_changed(formation: Array)                                 # 阵型变化（9 格选 5，每格 {id, row, col}）
 signal mech_star_updated(id: StringName, star: int, level_cap: int)        # 机娘星级变化（升星后；level_cap=当前等级上限）
+
+# ---- 阶段 3 信号（v0.13：体力 / 秘境 / 背包 / 开箱）----
+signal stamina_changed(value: int)                                            # 体力变化（恢复结算/秘境消耗/买体力后）
+signal bag_updated(items: Dictionary, capacity: int)                          # 背包变化（道具增减/扩容；items={item_id:count}）
+signal box_count_changed(count: int)                                          # 待开箱数变化（主线首通发放/开箱后）
+signal box_opened(reward: Dictionary)                                          # 开箱结果（{type:"gold"/"material"/"fragment", amount, mech_id?}；入账走既有信号）
+signal dungeon_reward(kind: StringName, tier: int, rewards: Dictionary)       # 秘境通关奖励（展示用；入账走既有信号）
+signal dungeon_cleared_changed(status: Dictionary)                            # 秘境通关记录变化（解锁/扫荡可用状态）

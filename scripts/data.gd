@@ -128,6 +128,142 @@ const START_GOLD := 1000
 const START_DIAMOND := 300
 
 # ------------------------------------------------------------------
+# 体力系统（设计文档 §3.8 / 附录 B，v0.13）
+# ------------------------------------------------------------------
+const STAMINA_MAX := 100               # 体力上限 100（满上限停止恢复）
+const STAMINA_RECOVER_SECONDS := 300   # 5 分钟回 1 点
+const STAMINA_DUNGEON_COST := 10       # 秘境每次挑战/扫荡消耗（首次挑战免体力）
+const STAMINA_BUY_COST := 50           # 买体力：50 钻石回满
+const STAMINA_BUY_LIMIT := 3           # 每日限 3 次（本地日期跨日重置）
+
+# ------------------------------------------------------------------
+# 秘境（设计文档 §10.1，v0.13：5 副本 × 5 档）
+#   档位 tier 0~4：新手/简单/中等/困难/地狱，战力门槛 1千/3千/8千/2万/5万
+#   first_clear_diamond：首通钻石 30/60/100/150/250
+#   reward：该档通关资源（展示用，入账按 kind 分流）——装备/宝石系统后续批次，
+#           本轮 equip/gem 副本以材料入背包替代（交付说明注明）
+#   waves：每档敌方配置（推荐值【待确认】；敌人数值随档位递增，用共用技能模板）
+# ------------------------------------------------------------------
+const DUNGEONS := {
+	&"gold": {
+		"name": "金币副本",
+		"tiers": [
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "gold", "amount": 300 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "gold", "amount": 900 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "gold", "amount": 2200 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "gold", "amount": 5000 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "gold", "amount": 12000 } },
+		],
+		"waves": [
+			[ { "id": &"dg0_g1", "name": "秘境守备兵", "tier": "normal", "class": "fighter", "atk": 15, "hp": 150, "def": 5, "spd": 5, "skills": [&"enemy_shot"] }, { "id": &"dg0_g2", "name": "秘境守备兵", "tier": "normal", "class": "fighter", "atk": 15, "hp": 150, "def": 5, "spd": 5, "skills": [&"enemy_shot"] } ],
+			[ { "id": &"dg1_g1", "name": "秘境精英", "tier": "elite", "class": "fighter", "atk": 26, "hp": 260, "def": 8, "spd": 6, "skills": [&"enemy_sweep", &"enemy_heavy"] }, { "id": &"dg1_g2", "name": "秘境守备兵", "tier": "normal", "class": "archer", "atk": 24, "hp": 200, "def": 6, "spd": 7, "skills": [&"enemy_shot"] } ],
+			[ { "id": &"dg2_g1", "name": "秘境精英", "tier": "elite", "class": "fighter", "atk": 42, "hp": 420, "def": 12, "spd": 7, "skills": [&"enemy_sweep", &"enemy_burn"] }, { "id": &"dg2_g2", "name": "秘境精英", "tier": "elite", "class": "mage", "atk": 45, "hp": 300, "def": 8, "spd": 8, "skills": [&"enemy_ice", &"enemy_shot"] } ],
+			[ { "id": &"dg3_g1", "name": "秘境队长", "tier": "elite", "class": "fighter", "atk": 72, "hp": 700, "def": 18, "spd": 8, "skills": [&"enemy_sweep", &"enemy_heavy"] }, { "id": &"dg3_g2", "name": "秘境队长", "tier": "elite", "class": "mage", "atk": 78, "hp": 500, "def": 12, "spd": 9, "skills": [&"enemy_burn", &"enemy_ice"] } ],
+			[ { "id": &"dg4_boss", "name": "秘境镇守者", "tier": "boss", "class": "tank", "atk": 120, "hp": 1400, "def": 25, "spd": 9, "skills": [&"enemy_sweep", &"enemy_heavy"], "ultimate": &"enemy_boss_ult" }, { "id": &"dg4_g1", "name": "秘境队长", "tier": "elite", "class": "mage", "atk": 110, "hp": 700, "def": 15, "spd": 10, "skills": [&"enemy_burn", &"enemy_shot"] } ],
+		],
+	},
+	&"exp": {
+		"name": "经验副本",
+		"tiers": [
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "exp", "amount": 40 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "exp", "amount": 120 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "exp", "amount": 300 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "exp", "amount": 700 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "exp", "amount": 1600 } },
+		],
+		"waves": [
+			[ { "id": &"de0_g1", "name": "秘境守备兵", "tier": "normal", "class": "mage", "atk": 16, "hp": 130, "def": 4, "spd": 6, "skills": [&"enemy_shot"] } ],
+			[ { "id": &"de1_g1", "name": "秘境精英", "tier": "elite", "class": "mage", "atk": 27, "hp": 230, "def": 7, "spd": 7, "skills": [&"enemy_ice", &"enemy_shot"] } ],
+			[ { "id": &"de2_g1", "name": "秘境精英", "tier": "elite", "class": "mage", "atk": 44, "hp": 360, "def": 10, "spd": 8, "skills": [&"enemy_burn", &"enemy_ice"] }, { "id": &"de2_g2", "name": "秘境守备兵", "tier": "normal", "class": "fighter", "atk": 38, "hp": 400, "def": 12, "spd": 6, "skills": [&"enemy_heavy"] } ],
+			[ { "id": &"de3_g1", "name": "秘境队长", "tier": "elite", "class": "mage", "atk": 75, "hp": 580, "def": 14, "spd": 9, "skills": [&"enemy_ice", &"enemy_burn"] } ],
+			[ { "id": &"de4_boss", "name": "秘境镇守者", "tier": "boss", "class": "mage", "atk": 125, "hp": 1200, "def": 20, "spd": 10, "skills": [&"enemy_burn", &"enemy_ice"], "ultimate": &"enemy_boss_ult" } ],
+		],
+	},
+	&"equip": {
+		"name": "装备副本",
+		"tiers": [
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "material", "amount": 2 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "material", "amount": 5 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "material", "amount": 12 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "material", "amount": 25 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "material", "amount": 50 } },
+		],
+		"waves": [
+			[ { "id": &"dq0_g1", "name": "秘境守备兵", "tier": "normal", "class": "tank", "atk": 13, "hp": 180, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] } ],
+			[ { "id": &"dq1_g1", "name": "秘境精英", "tier": "elite", "class": "tank", "atk": 22, "hp": 320, "def": 14, "spd": 5, "skills": [&"enemy_heavy", &"enemy_shield"] } ],
+			[ { "id": &"dq2_g1", "name": "秘境精英", "tier": "elite", "class": "tank", "atk": 36, "hp": 520, "def": 20, "spd": 5, "skills": [&"enemy_heavy", &"enemy_taunt"] }, { "id": &"dq2_g2", "name": "秘境守备兵", "tier": "normal", "class": "archer", "atk": 40, "hp": 300, "def": 8, "spd": 7, "skills": [&"enemy_shot"] } ],
+			[ { "id": &"dq3_g1", "name": "秘境队长", "tier": "elite", "class": "tank", "atk": 60, "hp": 900, "def": 30, "spd": 6, "skills": [&"enemy_heavy", &"enemy_taunt"] } ],
+			[ { "id": &"dq4_boss", "name": "秘境镇守者", "tier": "boss", "class": "tank", "atk": 100, "hp": 2000, "def": 35, "spd": 7, "skills": [&"enemy_heavy", &"enemy_taunt"], "ultimate": &"enemy_boss_ult" } ],
+		],
+	},
+	&"gem": {
+		"name": "宝石副本",
+		"tiers": [
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "material", "amount": 2 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "material", "amount": 5 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "material", "amount": 12 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "material", "amount": 25 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "material", "amount": 50 } },
+		],
+		"waves": [
+			[ { "id": &"db0_g1", "name": "秘境守备兵", "tier": "normal", "class": "mage", "atk": 16, "hp": 130, "def": 4, "spd": 6, "skills": [&"enemy_shot"] } ],
+			[ { "id": &"db1_g1", "name": "秘境精英", "tier": "elite", "class": "mage", "atk": 27, "hp": 230, "def": 7, "spd": 7, "skills": [&"enemy_ice", &"enemy_shot"] } ],
+			[ { "id": &"db2_g1", "name": "秘境精英", "tier": "elite", "class": "mage", "atk": 44, "hp": 360, "def": 10, "spd": 8, "skills": [&"enemy_burn", &"enemy_ice"] } ],
+			[ { "id": &"db3_g1", "name": "秘境队长", "tier": "elite", "class": "mage", "atk": 75, "hp": 580, "def": 14, "spd": 9, "skills": [&"enemy_ice", &"enemy_burn"] } ],
+			[ { "id": &"db4_boss", "name": "秘境镇守者", "tier": "boss", "class": "mage", "atk": 125, "hp": 1200, "def": 20, "spd": 10, "skills": [&"enemy_burn", &"enemy_ice"], "ultimate": &"enemy_boss_ult" } ],
+		],
+	},
+	&"fragment": {
+		"name": "碎片副本",
+		"tiers": [
+			{ "power_req": 1000, "first_clear_diamond": 30, "reward": { "kind": "fragment", "amount": 5 } },
+			{ "power_req": 3000, "first_clear_diamond": 60, "reward": { "kind": "fragment", "amount": 12 } },
+			{ "power_req": 8000, "first_clear_diamond": 100, "reward": { "kind": "fragment", "amount": 25 } },
+			{ "power_req": 20000, "first_clear_diamond": 150, "reward": { "kind": "fragment", "amount": 50 } },
+			{ "power_req": 50000, "first_clear_diamond": 250, "reward": { "kind": "fragment", "amount": 100 } },
+		],
+		"waves": [
+			[ { "id": &"df0_g1", "name": "秘境守备兵", "tier": "normal", "class": "fighter", "atk": 15, "hp": 150, "def": 5, "spd": 5, "skills": [&"enemy_shot"] } ],
+			[ { "id": &"df1_g1", "name": "秘境精英", "tier": "elite", "class": "fighter", "atk": 26, "hp": 260, "def": 8, "spd": 6, "skills": [&"enemy_sweep", &"enemy_heavy"] } ],
+			[ { "id": &"df2_g1", "name": "秘境精英", "tier": "elite", "class": "fighter", "atk": 42, "hp": 420, "def": 12, "spd": 7, "skills": [&"enemy_sweep", &"enemy_burn"] } ],
+			[ { "id": &"df3_g1", "name": "秘境队长", "tier": "elite", "class": "fighter", "atk": 72, "hp": 700, "def": 18, "spd": 8, "skills": [&"enemy_sweep", &"enemy_heavy"] } ],
+			[ { "id": &"df4_boss", "name": "秘境镇守者", "tier": "boss", "class": "fighter", "atk": 120, "hp": 1400, "def": 25, "spd": 9, "skills": [&"enemy_sweep", &"enemy_heavy"], "ultimate": &"enemy_boss_ult" } ],
+		],
+	},
+}
+
+# ------------------------------------------------------------------
+# 背包（设计文档 §6 / §8.4，v0.13）
+# ------------------------------------------------------------------
+const BAG_START_CAPACITY := 50          # 初始 50 格
+const BAG_EXPAND_AMOUNT := 10           # 扩容 +10 格
+const BAG_EXPAND_BASE_COST := 1000      # 第 1 次扩容 1000 金币，之后翻倍
+const BAG_MAX_CAPACITY := 300           # 上限 300 格
+
+## 道具表（v0.13：本轮仅库存/计数展示，道具使用后续批次）
+const ITEMS := {
+	&"exp_potion": { "name": "经验药水", "type": "exp" },
+	&"stamina_item": { "name": "体力道具", "type": "stamina" },
+	&"speed_item": { "name": "加速道具", "type": "speed" },
+	&"material": { "name": "升级材料", "type": "material" },
+}
+
+# ------------------------------------------------------------------
+# 开箱（设计文档 §7 / §8.4，v0.13）
+#   权重：金币 50% / 材料 35% / 碎片 15%（碎片内 R 10% / SR 4% / SSR 1%）
+#   即分布：金币 50%、材料 35%、R 碎片 10%、SR 碎片 4%、SSR 碎片 1%
+#   掉落数值为推荐值【待确认】
+# ------------------------------------------------------------------
+const BOX_WEIGHT_GOLD := 0.50
+const BOX_WEIGHT_MATERIAL := 0.35
+const BOX_WEIGHT_FRAGMENT_R := 0.10
+const BOX_WEIGHT_FRAGMENT_SR := 0.04
+const BOX_WEIGHT_FRAGMENT_SSR := 0.01
+const BOX_GOLD_AMOUNT := 500
+const BOX_MATERIAL_AMOUNT := 3
+const BOX_FRAGMENT_AMOUNT := { Rarity.R: 10, Rarity.SR: 20, Rarity.SSR: 50 }
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300

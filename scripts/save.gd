@@ -51,7 +51,29 @@ func save_game() -> void:
 		"level_stars": {},
 		"cleared_boss": {},
 		"chapter_chest_claimed": bool(snapshot.get("chapter_chest_claimed", false)),
+		# v0.13：体力 / 秘境 / 背包 / 开箱
+		"stamina": clampi(int(snapshot.get("stamina", Data.STAMINA_MAX)), 0, Data.STAMINA_MAX),
+		"stamina_last_time": int(snapshot.get("stamina_last_time", 0)),
+		"stamina_buy_count": maxi(int(snapshot.get("stamina_buy_count", 0)), 0),
+		"last_reset_day": str(snapshot.get("last_reset_day", "")),
+		"dungeon_cleared": {},
+		"bag": { "items": {}, "capacity": clampi(int(snapshot.get("bag", {}).get("capacity", Data.BAG_START_CAPACITY)), 0, Data.BAG_MAX_CAPACITY) },
+		"boxes": maxi(int(snapshot.get("boxes", 0)), 0),
 	}
+	# 背包物品（item_id → count，只认 Data.ITEMS）
+	var bag_src: Dictionary = snapshot.get("bag", {})
+	var bag_items_src: Dictionary = bag_src.get("items", {})
+	for item_key in bag_items_src:
+		if Data.ITEMS.has(StringName(str(item_key))):
+			save_dict["bag"]["items"][str(item_key)] = maxi(int(bag_items_src[item_key]), 0)
+	# 秘境通关记录 {kind: {tier: true}}
+	var dungeon_cleared_src: Dictionary = snapshot.get("dungeon_cleared", {})
+	for kind in dungeon_cleared_src:
+		var tier_map: Dictionary = dungeon_cleared_src[kind]
+		if tier_map is Dictionary:
+			save_dict["dungeon_cleared"][str(kind)] = {}
+			for tier in tier_map:
+				save_dict["dungeon_cleared"][str(kind)][str(tier)] = true
 	var mechs: Dictionary = snapshot.get("mechs", {})
 	for key in mechs:
 		var entry: Dictionary = mechs[key]
@@ -233,6 +255,35 @@ func load_game() -> Dictionary:
 	# 章节星数宝箱领取标记（v0.8；旧档无此字段 → 默认 false，补齐不丢）
 	if parsed_dict.has("chapter_chest_claimed"):
 		result["chapter_chest_claimed"] = bool(parsed_dict["chapter_chest_claimed"])
+	# —— v0.13：体力 / 秘境 / 背包 / 开箱 ——
+	if parsed_dict.has("stamina"):
+		result["stamina"] = clampi(int(parsed_dict["stamina"]), 0, Data.STAMINA_MAX)
+	if parsed_dict.has("stamina_last_time"):
+		var slt: Variant = parsed_dict["stamina_last_time"]
+		if (slt is float or slt is int) and int(slt) > 0:
+			result["stamina_last_time"] = int(slt)
+	if parsed_dict.has("stamina_buy_count"):
+		result["stamina_buy_count"] = maxi(int(parsed_dict["stamina_buy_count"]), 0)
+	if parsed_dict.has("last_reset_day"):
+		result["last_reset_day"] = str(parsed_dict["last_reset_day"])
+	var dungeon_cleared: Variant = parsed_dict.get("dungeon_cleared", {})
+	if dungeon_cleared is Dictionary:
+		for kind in dungeon_cleared:
+			var tier_map: Variant = dungeon_cleared[kind]
+			if tier_map is Dictionary:
+				result["dungeon_cleared"][str(kind)] = {}
+				for tier in tier_map:
+					result["dungeon_cleared"][str(kind)][str(tier)] = true
+	var bag_data: Variant = parsed_dict.get("bag", {})
+	if bag_data is Dictionary:
+		result["bag"]["capacity"] = clampi(int(bag_data.get("capacity", Data.BAG_START_CAPACITY)), 0, Data.BAG_MAX_CAPACITY)
+		var bag_items: Variant = bag_data.get("items", {})
+		if bag_items is Dictionary:
+			for item_key in bag_items:
+				if Data.ITEMS.has(StringName(str(item_key))):
+					result["bag"]["items"][str(item_key)] = maxi(int(bag_items[item_key]), 0)
+	if parsed_dict.has("boxes"):
+		result["boxes"] = maxi(int(parsed_dict["boxes"]), 0)
 	return result
 
 ## 默认档数据（契约 §3.2，v0.10）：开局资源 = 金币 1000 + 钻石 300（仅新档，v0.18）、
@@ -267,4 +318,13 @@ func _default_data() -> Dictionary:
 		"level_stars": {},
 		"cleared_boss": {},
 		"chapter_chest_claimed": false,
+		# v0.13：体力满 100、上次结算=当前时间、当日购买 0、重置日=当天、
+		#        秘境通关记录空、背包 50 格空物品、待开箱 0
+		"stamina": Data.STAMINA_MAX,
+		"stamina_last_time": int(Time.get_unix_time_from_system()),
+		"stamina_buy_count": 0,
+		"last_reset_day": Time.get_date_string_from_system(),
+		"dungeon_cleared": {},
+		"bag": { "items": {}, "capacity": Data.BAG_START_CAPACITY },
+		"boxes": 0,
 	}

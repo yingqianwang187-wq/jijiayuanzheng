@@ -51,11 +51,23 @@ var cleared_boss: Dictionary = {}                 # { int level: true } 已通�
 var chapter_chest_claimed: bool = false           # 章节星数宝箱是否已领（第 1 章；不入契约字段清单，防重复领取）
 var accelerate: bool = false                      # 战斗 2x 加速开关（内存态，不入档）
 
+## 阶段 3：体力 / 秘境 / 背包 / 开箱（契约 §3.10，v0.13）
+var stamina: int = Data.STAMINA_MAX               # 体力（上限 100，满上限停止恢复）
+var stamina_last_time: int = 0                    # 上次体力恢复结算时间戳
+var stamina_buy_count: int = 0                    # 当日买体力次数（跨日重置）
+var last_reset_day: String = ""                   # 上次每日重置日期（本地日期 YYYY-MM-DD）
+var dungeon_cleared: Dictionary = {}              # {kind: {tier: true}} 秘境通关记录
+var dungeon_attempted: Dictionary = {}            # {kind: {tier: true}} 秘境挑战记录（内存态：首免判定，不入档）
+var bag: Dictionary = { "items": {}, "capacity": Data.BAG_START_CAPACITY }  # 背包 {items:{item_id:count}, capacity}
+var boxes: int = 0                                # 待开箱数
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
 	"tick": 0,
 	"active": false,
+	"mode": &"story",           # 战斗模式：story 主线 / dungeon 秘境（v0.13）
+	"dungeon_ctx": {},          # 秘境上下文：{kind, tier, cost}（v0.13）
 	"wave": 1,
 	"total_waves": 1,
 	"mechs": [],        # 我方单位 [{ side, id, name, class, row, col, hp, max_hp, atk, def, spd, energy, cd_1, cd_2, statuses, buffs, shield, taunt_turns, dodge_crit_ready, alive, dmg_dealt, heal_done, level, cfg }]
@@ -187,6 +199,34 @@ func _load_initial_state() -> void:
 			if level >= 1 and level <= Data.MAX_LEVEL:
 				cleared_boss[level] = true
 	chapter_chest_claimed = bool(data.get("chapter_chest_claimed", false))
+	# —— v0.13：体力 / 秘境 / 背包 / 开箱 ——
+	stamina = clampi(int(data.get("stamina", Data.STAMINA_MAX)), 0, Data.STAMINA_MAX)
+	stamina_last_time = int(data.get("stamina_last_time", int(Time.get_unix_time_from_system())))
+	stamina_buy_count = maxi(int(data.get("stamina_buy_count", 0)), 0)
+	last_reset_day = str(data.get("last_reset_day", Time.get_date_string_from_system()))
+	dungeon_cleared.clear()
+	var dungeon_data: Variant = data.get("dungeon_cleared", {})
+	if dungeon_data is Dictionary:
+		for kind in dungeon_data:
+			var tier_map: Variant = dungeon_data[kind]
+			if tier_map is Dictionary:
+				dungeon_cleared[str(kind)] = {}
+				for tier in tier_map:
+					dungeon_cleared[str(kind)][str(tier)] = true
+	dungeon_attempted.clear()
+	bag = { "items": {}, "capacity": Data.BAG_START_CAPACITY }
+	var bag_data: Variant = data.get("bag", {})
+	if bag_data is Dictionary:
+		bag["capacity"] = clampi(int(bag_data.get("capacity", Data.BAG_START_CAPACITY)), 0, Data.BAG_MAX_CAPACITY)
+		var bag_items: Variant = bag_data.get("items", {})
+		if bag_items is Dictionary:
+			for item_key in bag_items:
+				if Data.ITEMS.has(StringName(str(item_key))):
+					bag["items"][str(item_key)] = maxi(int(bag_items[item_key]), 0)
+	boxes = maxi(int(data.get("boxes", 0)), 0)
+	# 每日重置（跨日清体力购买次数）+ 离线体力恢复结算
+	_check_daily_reset()
+	_recover_stamina()
 
 ## 建节拍计时器：挂机常驻，战斗按需启动
 func _setup_timers() -> void:
@@ -216,6 +256,11 @@ func _emit_initial_state() -> void:
 	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
 	Contract.owned_mechs_updated.emit(_owned_mech_ids())
 	Contract.formation_changed.emit(formation)
+	# v0.13：体力 / 背包 / 开箱 / 秘境
+	Contract.stamina_changed.emit(stamina)
+	Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+	Contract.box_count_changed.emit(boxes)
+	Contract.dungeon_cleared_changed.emit(get_dungeon_status())
 
 ## 由 Data 基础值 + 当前等级 + 星级计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -339,6 +384,8 @@ func start_battle(level: int) -> void:
 		"level": level,
 		"tick": 0,
 		"active": true,
+		"mode": &"story",
+		"dungeon_ctx": {},
 		"wave": 1,
 		"total_waves": Data.LEVELS[level].waves.size(),
 		"mechs": [],
@@ -1085,9 +1132,11 @@ func _remaining_hp_ratio(units: Array) -> float:
 		return 0.0
 	return total / max_total
 
-## 胜利：星级 → 首通奖励 → 星奖/章节宝箱 → 全体上阵机娘得经验 → 解锁下一关 →
-## 记录 last_clear → 发 battle_star + level_cleared → 自动存档
+## 胜利：按战斗模式分流（主线 story / 秘境 dungeon，v0.13）
 func _resolve_victory() -> void:
+	if battle.mode == &"dungeon":
+		_resolve_dungeon_victory()
+		return
 	battle.active = false
 	battle_timer.stop()
 	var level: int = int(battle.level)
@@ -1113,6 +1162,9 @@ func _resolve_victory() -> void:
 		# BOSS 关记录
 		if int(Data.CHAPTERS[1].boss_level) == level:
 			cleared_boss[level] = true
+		# 主线首通发放宝箱（每关 1 个，v0.13）
+		boxes += 1
+		Contract.box_count_changed.emit(boxes)
 		var next_level: int = level + 1
 		if next_level <= Data.MAX_LEVEL and next_level > unlocked_level:
 			unlocked_level = next_level
@@ -1178,10 +1230,49 @@ func _check_chapter_chest() -> void:
 		Contract.diamond_changed.emit(diamond)
 		Contract.battle_prompt.emit(&"skill", "章节宝箱已开启！")
 
+## 秘境胜利结算（v0.13）：预扣体力保留（成功消耗）→ 首通钻石 + 掉落资源 →
+## 上阵机娘经验 → 通关记录 → 发 dungeon_reward / dungeon_cleared_changed → 存档
+func _resolve_dungeon_victory() -> void:
+	battle.active = false
+	battle_timer.stop()
+	var ctx: Dictionary = battle.dungeon_ctx
+	var kind := StringName(str(ctx.kind))
+	var tier: int = int(ctx.tier)
+	var tier_cfg: Dictionary = Data.DUNGEONS[kind].tiers[tier]
+	var diamond_reward: int = int(tier_cfg.first_clear_diamond)
+	var first_clear: bool = not _dungeon_is_cleared(kind, tier)
+	if first_clear:
+		diamond += diamond_reward
+		Contract.diamond_changed.emit(diamond)
+		if not dungeon_cleared.has(str(kind)):
+			dungeon_cleared[str(kind)] = {}
+		dungeon_cleared[str(kind)][str(tier)] = true
+		Contract.dungeon_cleared_changed.emit(get_dungeon_status())
+	# 该档掉落资源（exp 分支用本局上阵名单）
+	var rewards := _grant_dungeon_reward(kind, tier, battle.mech_ids)
+	# 秘境胜利经验（可重复玩法胜利给经验，v0.15）：10 + tier×10（推荐值）
+	var exp_gain: int = 10 + tier * 10
+	for mech_id in battle.mech_ids:
+		var mid := StringName(mech_id)
+		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
+			continue
+		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
+		mech_exp[mid] = new_exp
+		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	Contract.dungeon_reward.emit(kind, tier, rewards)
+	last_clear = { "level": tier + 1, "first_clear": first_clear, "reward": diamond_reward }
+	Save.save_game()
+
 ## 失败：发 battle_failed → 停止战斗，可重试
+## 秘境挑战失败：全额返还已扣体力（v0.20 裁决：重试不重复扣，成功/扫荡才真正消耗）
 func _resolve_defeat() -> void:
 	battle.active = false
 	battle_timer.stop()
+	if battle.mode == &"dungeon" and not battle.dungeon_ctx.is_empty():
+		var cost: int = int(battle.dungeon_ctx.cost)
+		if cost > 0:
+			stamina = mini(stamina + cost, Data.STAMINA_MAX)
+			Contract.stamina_changed.emit(stamina)
 	Contract.battle_failed.emit(int(battle.level))
 
 ## 挂机节拍：每秒累入"待收获金币 + 待收获经验"并发 idle_rewards_updated（契约 §1.2 / §3.5，v0.4 / v0.6）
@@ -1193,6 +1284,9 @@ func _on_idle_tick() -> void:
 	idle_pending_exp += rate * Data.IDLE_EXP_RATIO
 	idle_last_time = int(Time.get_unix_time_from_system())
 	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
+	# v0.13：体力自然恢复结算（满上限停止）+ 每日重置检查
+	_check_daily_reset()
+	_recover_stamina()
 	# 待收获金额（金币+经验）+ 时间戳自动存档节流（契约 §3.2 / §3.6：每 5 秒一次，间隔数值在 Data）
 	_idle_save_accum += Data.IDLE_TICK_INTERVAL
 	if _idle_save_accum >= Data.SAVE_THROTTLE_INTERVAL:
@@ -1568,6 +1662,297 @@ func get_power(mech_id: StringName) -> int:
 	var s := _mech_stats(mech_id)
 	return int(s.atk) * Data.POWER_ATK_W + int(s.hp) * Data.POWER_HP_W + int(s.def) * Data.POWER_DEF_W + int(s.spd) * Data.POWER_SPD_W
 
+## ================================================================
+## v0.13：体力（契约 §3.10 / 设计文档 §3.8）
+## ================================================================
+## 只读：当前体力（先做每日重置 + 离线/在线恢复结算）
+func get_stamina() -> int:
+	_check_daily_reset()
+	_recover_stamina()
+	return stamina
+
+## 每日重置（跨本地日期清当日体力购买次数；后续签到/任务复用 last_reset_day）
+func _check_daily_reset() -> void:
+	var today: String = Time.get_date_string_from_system()
+	if last_reset_day != today:
+		last_reset_day = today
+		stamina_buy_count = 0
+
+## 体力恢复结算：按"现在-上次"补入（满上限停止，不溢出）
+func _recover_stamina() -> void:
+	var now: int = int(Time.get_unix_time_from_system())
+	if stamina >= Data.STAMINA_MAX:
+		stamina_last_time = now
+		return
+	var elapsed: int = maxi(now - stamina_last_time, 0)
+	stamina_last_time = now
+	if elapsed <= 0:
+		return
+	var gained: int = int(elapsed / Data.STAMINA_RECOVER_SECONDS)
+	if gained <= 0:
+		return
+	var before: int = stamina
+	stamina = mini(stamina + gained, Data.STAMINA_MAX)
+	if stamina != before:
+		Contract.stamina_changed.emit(stamina)
+
+## 买体力（契约 §3.6 入口，v0.13）：扣 50 钻石回满，每日限 3 次
+func buy_stamina() -> void:
+	_check_daily_reset()
+	_recover_stamina()
+	if stamina_buy_count >= Data.STAMINA_BUY_LIMIT:
+		return
+	if diamond < Data.STAMINA_BUY_COST:
+		return
+	diamond -= Data.STAMINA_BUY_COST
+	stamina_buy_count += 1
+	stamina = Data.STAMINA_MAX
+	stamina_last_time = int(Time.get_unix_time_from_system())
+	Contract.diamond_changed.emit(diamond)
+	Contract.stamina_changed.emit(stamina)
+	Save.save_game()
+
+## ================================================================
+## v0.13：秘境（契约 §3.10 / 设计文档 §10.1）
+## ================================================================
+## 只读：{stamina 所需体力（首免 0/重试 10）, power_req 战力门槛, cleared 是否已通关}
+func dungeon_cost(kind: StringName, tier: int) -> Dictionary:
+	if not Data.DUNGEONS.has(kind) or tier < 0 or tier >= Data.DUNGEONS[kind].tiers.size():
+		return { "stamina": 0, "power_req": 0, "cleared": true }
+	var tier_cfg: Dictionary = Data.DUNGEONS[kind].tiers[tier]
+	var cleared: bool = _dungeon_is_cleared(kind, tier)
+	var cost: int = 0
+	if cleared:
+		cost = Data.STAMINA_DUNGEON_COST
+	elif _dungeon_is_attempted(kind, tier):
+		cost = Data.STAMINA_DUNGEON_COST  # 重试（失败返还）
+	return { "stamina": cost, "power_req": int(tier_cfg.power_req), "cleared": cleared }
+
+## 只读：全部副本通关状态 {kind: {tier: {cleared, power_req}}}
+func get_dungeon_status() -> Dictionary:
+	var status := {}
+	for kind in Data.DUNGEONS:
+		var kind_status := {}
+		var tiers: Array = Data.DUNGEONS[kind].tiers
+		for i in tiers.size():
+			kind_status[str(i)] = {
+				"cleared": _dungeon_is_cleared(kind, i),
+				"power_req": int(tiers[i].power_req),
+			}
+		status[str(kind)] = kind_status
+	return status
+
+## 进入秘境战斗（契约 §3.6 入口，v0.13）：限未通关档；预扣体力（首免 0，失败返还）；
+## 上阵战力 ≥ 门槛；battle.mode = "dungeon"
+func start_dungeon(kind: StringName, tier: int) -> void:
+	if not Data.DUNGEONS.has(kind) or tier < 0 or tier >= Data.DUNGEONS[kind].tiers.size():
+		return
+	if _dungeon_is_cleared(kind, tier):
+		return
+	var cost: int = dungeon_cost(kind, tier).stamina
+	if stamina < cost:
+		return
+	if _team_power() < int(Data.DUNGEONS[kind].tiers[tier].power_req):
+		return
+	if cost > 0:
+		stamina -= cost
+		Contract.stamina_changed.emit(stamina)
+	_dungeon_mark_attempted(kind, tier)
+	_start_dungeon_battle(kind, tier, cost)
+
+## 构建秘境战斗（敌方按档位配置 waves，单波）
+func _start_dungeon_battle(kind: StringName, tier: int, cost: int) -> void:
+	if formation.size() < 2:
+		_ensure_default_formation()
+	var tier_cfg: Dictionary = Data.DUNGEONS[kind].tiers[tier]
+	battle = {
+		"level": 0,
+		"tick": 0,
+		"active": true,
+		"mode": &"dungeon",
+		"dungeon_ctx": { "kind": str(kind), "tier": tier, "cost": cost },
+		"wave": 1,
+		"total_waves": 1,
+		"mechs": [],
+		"enemies": [],
+		"pending_waves": [],
+		"deaths": 0,
+		"mech_ids": [],
+		"accelerate": accelerate,
+	}
+	var used_ids := {}
+	for slot in formation:
+		var mech_id := StringName(str(slot.id))
+		if not owned_mechs.has(mech_id) or used_ids.has(mech_id):
+			continue
+		used_ids[mech_id] = true
+		battle.mechs.append(_build_mech_unit(mech_id, int(slot.row), int(slot.col)))
+		battle.mech_ids.append(mech_id)
+	battle.pending_waves = []
+	for wave_cfg in tier_cfg.waves:
+		battle.pending_waves.append(wave_cfg)
+	_spawn_wave(battle.pending_waves[0])
+	battle.pending_waves.remove_at(0)
+	_apply_passive_battle_start()
+	Contract.battle_tick.emit(0)
+	for m in battle.mechs:
+		Contract.mech_girl_updated.emit(m.id, int(m.hp), int(m.atk), int(m.level))
+		Contract.energy_changed.emit(&"mech", m.id, int(m.energy))
+	for e in battle.enemies:
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, int(e.energy))
+	Contract.wave_changed.emit(battle.wave, battle.total_waves)
+	_apply_battle_timer_speed()
+	battle_timer.start()
+
+## 上阵战力合计（当前阵型）
+func _team_power() -> int:
+	var total := 0
+	for slot in formation:
+		var mid := StringName(str(slot.id))
+		if owned_mechs.has(mid):
+			var s := _mech_stats(mid)
+			total += int(s.atk) * Data.POWER_ATK_W + int(s.hp) * Data.POWER_HP_W + int(s.def) * Data.POWER_DEF_W + int(s.spd) * Data.POWER_SPD_W
+	return total
+
+## 扫荡秘境已通关档（契约 §3.6 入口，v0.13）：扣 10 体力 → 直接发该档奖励（跳过战斗）
+func sweep_dungeon(kind: StringName, tier: int) -> void:
+	if not Data.DUNGEONS.has(kind) or tier < 0 or tier >= Data.DUNGEONS[kind].tiers.size():
+		return
+	if not _dungeon_is_cleared(kind, tier):
+		return
+	if stamina < Data.STAMINA_DUNGEON_COST:
+		return
+	stamina -= Data.STAMINA_DUNGEON_COST
+	stamina_last_time = int(Time.get_unix_time_from_system())
+	Contract.stamina_changed.emit(stamina)
+	var rewards := _grant_dungeon_reward(kind, tier, _formation_mech_ids())
+	Contract.dungeon_reward.emit(kind, tier, rewards)
+	Save.save_game()
+
+## 上阵机娘 id（当前阵型，含重复过滤）
+func _formation_mech_ids() -> Array:
+	var ids: Array = []
+	for slot in formation:
+		var mid := StringName(str(slot.id))
+		if not ids.has(mid):
+			ids.append(mid)
+	return ids
+
+func _dungeon_is_cleared(kind, tier: int) -> bool:
+	return dungeon_cleared.has(str(kind)) and dungeon_cleared[str(kind)].has(str(tier))
+
+func _dungeon_is_attempted(kind, tier: int) -> bool:
+	return dungeon_attempted.has(str(kind)) and dungeon_attempted[str(kind)].has(str(tier))
+
+func _dungeon_mark_attempted(kind, tier: int) -> void:
+	if not dungeon_attempted.has(str(kind)):
+		dungeon_attempted[str(kind)] = {}
+	dungeon_attempted[str(kind)][str(tier)] = true
+
+## 发放秘境该档掉落资源（按 reward.kind 入账并走既有信号）；返回展示用 rewards
+func _grant_dungeon_reward(kind: StringName, tier: int, exp_ids: Array) -> Dictionary:
+	var tier_cfg: Dictionary = Data.DUNGEONS[kind].tiers[tier]
+	var reward_cfg: Dictionary = tier_cfg.reward
+	var amount: int = int(reward_cfg.amount)
+	match str(reward_cfg.kind):
+		"gold":
+			gold += amount
+			Contract.gold_changed.emit(gold)
+		"exp":
+			for mech_id in exp_ids:
+				var mid := StringName(mech_id)
+				if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
+					continue
+				var new_exp: int = int(mech_exp.get(mid, 0)) + amount
+				mech_exp[mid] = new_exp
+				Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+		"material":
+			bag["items"]["material"] = int(bag["items"].get("material", 0)) + amount
+			Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+		"fragment":
+			var target_id := _random_mech_of_rarity(Data.Rarity.R)
+			fragments[target_id] = int(fragments.get(target_id, 0)) + amount
+			Contract.fragments_updated.emit(target_id, int(fragments[target_id]))
+	return { "kind": str(reward_cfg.kind), "amount": amount }
+
+## ================================================================
+## v0.13：背包（契约 §3.10 / 设计文档 §6）
+## ================================================================
+## 只读：{items, capacity}
+func get_bag() -> Dictionary:
+	return { "items": bag["items"], "capacity": int(bag["capacity"]) }
+
+## 只读：下次扩容所需金币（满上限返回 0）
+func expand_bag_cost() -> int:
+	var capacity: int = int(bag["capacity"])
+	if capacity >= Data.BAG_MAX_CAPACITY:
+		return 0
+	var times: int = (capacity - Data.BAG_START_CAPACITY) / Data.BAG_EXPAND_AMOUNT
+	return Data.BAG_EXPAND_BASE_COST * int(pow(2.0, float(times)))
+
+## 背包扩容（契约 §3.6 入口，v0.13）：扣金币 → +10 格 → 发 bag_updated + gold_changed
+func expand_bag() -> void:
+	var cost: int = expand_bag_cost()
+	if cost <= 0 or gold < cost:
+		return
+	gold -= cost
+	bag["capacity"] = mini(int(bag["capacity"]) + Data.BAG_EXPAND_AMOUNT, Data.BAG_MAX_CAPACITY)
+	Contract.gold_changed.emit(gold)
+	Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+	Save.save_game()
+
+## ================================================================
+## v0.13：开箱（契约 §3.10 / 设计文档 §7）
+## ================================================================
+## 只读：待开箱数
+func get_box_count() -> int:
+	return boxes
+
+## 开 1 个宝箱（契约 §3.6 入口，v0.13）：按权重随机金币/材料/碎片并直接入账
+func open_box() -> void:
+	if boxes <= 0:
+		return
+	boxes -= 1
+	var reward := _roll_box_reward()
+	Contract.box_count_changed.emit(boxes)
+	Contract.box_opened.emit(reward)
+	Save.save_game()
+
+## 开箱权重（设计文档 §7：金币 50% / 材料 35% / R 碎片 10% / SR 碎片 4% / SSR 碎片 1%）
+func _roll_box_reward() -> Dictionary:
+	var roll: float = randf()
+	if roll < Data.BOX_WEIGHT_GOLD:
+		gold += Data.BOX_GOLD_AMOUNT
+		Contract.gold_changed.emit(gold)
+		return { "type": "gold", "amount": Data.BOX_GOLD_AMOUNT }
+	if roll < Data.BOX_WEIGHT_GOLD + Data.BOX_WEIGHT_MATERIAL:
+		var mat: int = Data.BOX_MATERIAL_AMOUNT
+		bag["items"]["material"] = int(bag["items"].get("material", 0)) + mat
+		Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+		return { "type": "material", "amount": mat }
+	var rarity: int = Data.Rarity.R
+	if roll >= Data.BOX_WEIGHT_GOLD + Data.BOX_WEIGHT_MATERIAL + Data.BOX_WEIGHT_FRAGMENT_R + Data.BOX_WEIGHT_FRAGMENT_SR:
+		rarity = Data.Rarity.SSR
+	elif roll >= Data.BOX_WEIGHT_GOLD + Data.BOX_WEIGHT_MATERIAL + Data.BOX_WEIGHT_FRAGMENT_R:
+		rarity = Data.Rarity.SR
+	var mech_id := _random_mech_of_rarity(rarity)
+	var amount: int = int(Data.BOX_FRAGMENT_AMOUNT[rarity])
+	fragments[mech_id] = int(fragments.get(mech_id, 0)) + amount
+	Contract.fragments_updated.emit(mech_id, int(fragments[mech_id]))
+	return { "type": "fragment", "amount": amount, "mech_id": mech_id }
+
+## 随机一位指定稀有度机娘（池内无该稀有度时全池随机）
+func _random_mech_of_rarity(rarity: int) -> StringName:
+	var candidates: Array = []
+	for mech_id in Data.MECH_GIRLS:
+		if int(Data.MECH_GIRLS[mech_id].rarity) == rarity:
+			candidates.append(mech_id)
+	if candidates.is_empty():
+		for mech_id in Data.MECH_GIRLS:
+			candidates.append(mech_id)
+	return StringName(candidates[randi() % candidates.size()])
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -1611,4 +1996,12 @@ func get_save_snapshot() -> Dictionary:
 		"level_stars": level_stars,
 		"cleared_boss": cleared_boss,
 		"chapter_chest_claimed": chapter_chest_claimed,
+		# v0.13：体力 / 秘境 / 背包 / 开箱
+		"stamina": stamina,
+		"stamina_last_time": stamina_last_time,
+		"stamina_buy_count": stamina_buy_count,
+		"last_reset_day": last_reset_day,
+		"dungeon_cleared": dungeon_cleared,
+		"bag": bag,
+		"boxes": boxes,
 	}
