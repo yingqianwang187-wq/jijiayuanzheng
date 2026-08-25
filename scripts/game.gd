@@ -13,11 +13,6 @@
 # ==================================================================
 extends Node
 
-## 首通掉落小钰碎片（设计文档 §1.3 / 附录 B，v0.15：普通关 1 片、章节 BOSS 关 3 片）。
-## 说明：data.gd 本轮变更单只读，暂以 Game 常量承载；A 可下轮迁入 Data（"数值读 Data"）。
-const FIRST_CLEAR_XIAOYU_FRAGMENT := 1
-const FIRST_CLEAR_XIAOYU_FRAGMENT_BOSS := 3
-
 ## ---------------------------------------------------------------
 ## 当前状态（唯一事实来源；只允许本文件修改）
 ## ---------------------------------------------------------------
@@ -1042,9 +1037,9 @@ func _resolve_victory() -> void:
 			diamond += diamond_reward
 			Contract.diamond_changed.emit(diamond)
 		# 首通掉落小钰碎片（设计文档 §1.3 / 附录 B，v0.15：普通关 1 片、章节 BOSS 关 3 片；一次性）
-		var xiaoyu_frag: int = FIRST_CLEAR_XIAOYU_FRAGMENT
+		var xiaoyu_frag: int = Data.XIAOYU_FRAGMENT_FIRST_CLEAR
 		if int(Data.CHAPTERS[1].boss_level) == level:
-			xiaoyu_frag = FIRST_CLEAR_XIAOYU_FRAGMENT_BOSS
+			xiaoyu_frag = Data.XIAOYU_FRAGMENT_BOSS
 		fragments[&"xiao_yu"] = int(fragments.get(&"xiao_yu", 0)) + xiaoyu_frag
 		Contract.fragments_updated.emit(&"xiao_yu", int(fragments[&"xiao_yu"]))
 		# BOSS 关记录

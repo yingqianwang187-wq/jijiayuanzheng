@@ -108,6 +108,10 @@ const CHAPTER_CHEST_STAR_RATIO := 0.9
 const CHAPTER_CHEST_DIAMOND := 100
 const CHAPTER_CHEST_GOLD := 500
 
+## 首通掉落小钰碎片（设计文档 §1.3 / 附录 B，v0.15：普通关 1 片、章节 BOSS 关 3 片，一次性）
+const XIAOYU_FRAGMENT_FIRST_CLEAR := 1
+const XIAOYU_FRAGMENT_BOSS := 3
+
 # ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------

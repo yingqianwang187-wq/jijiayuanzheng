@@ -1,16 +1,21 @@
 # ==================================================================
 # scripts/main_ui.gd —— 主界面脚本（挂在 scenes/Main.tscn 根节点）
 # 作者   ：C（画面 + 界面）
-# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8（v0.7）、scripts/contract.gd（只读）
+# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8 / §3.9（v0.9）、scripts/contract.gd（只读）
 # 职责   ：主界面纯显示层。
 #          - 连接信号：gold_changed / mech_girl_updated / mech_exp_updated /
 #            level_cleared / level_progress_changed / idle_rewards_updated /
-#            exp_balance_updated / diamond_changed / fragments_updated / owned_mechs_updated
+#            exp_balance_updated / diamond_changed / fragments_updated / owned_mechs_updated /
+#            battle_star
 #          - 按钮只调入口（契约 §3.6）：升级 → Game.upgrade(id)；
-#            收获 → Game.collect_idle()；进入战斗 → Game.start_battle(level) + 切到 Battle.tscn；
-#            抽卡 → 切到 Gacha.tscn；手动存档 → Save.save_game()
+#            收获 → Game.collect_idle()；挑战 → Game.start_battle(Game.get_next_level())（v0.9 主线
+#            不可选关）+ 切到 Battle.tscn；抽卡/布阵 → 切到 Gacha.tscn / Formation.tscn；
+#            手动存档 → Save.save_game()
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          一切更新值以 Game 信号参数为准，UI 不缓存游戏数值。
+# 主线（v0.9）：只显示并挑战"当前最高未通关的下一关"（Game.get_next_level() 只读入口），
+#          无选关列表、无扫荡入口；首通奖励 = 金币 + 钻石 + 小钰碎片（普通 1 片 / BOSS 3 片，
+#          Data.XIAOYU_FRAGMENT_*，走 fragments_updated 信号），通关后随 last_clear 快照展示。
 # 机娘列表：只显示已拥有的机娘（契约 §3.8 v0.7：上阵/养成 = 拥有的机娘），
 #          名单来自只读入口 Game.get_owned_mechs()（按 Data 顺序）；
 #          owned_mechs_updated / fragments_updated 到达时重建列表。
@@ -40,19 +45,15 @@ extends Control
 @onready var _gold_balance_label: Label = $root_box/balance_row/gold_balance_label
 @onready var _exp_balance_label: Label = $root_box/balance_row/exp_balance_label
 @onready var _diamond_label: Label = $root_box/balance_row/diamond_label
-@onready var _level_box: HBoxContainer = $root_box/level_box
+@onready var _challenge_button: Button = $root_box/challenge_button
 @onready var _mech_box: VBoxContainer = $root_box/mech_box
 @onready var _last_clear_label: Label = $root_box/last_clear_label
 @onready var _message_label: Label = $root_box/message_label
-@onready var _enter_battle_button: Button = $root_box/bottom_row/enter_battle_button
 @onready var _save_button: Button = $root_box/bottom_row/save_button
 @onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
 @onready var _formation_button: Button = $root_box/bottom_row/formation_button
 
-## ---- UI 内部状态（仅关卡选择与行引用，不含任何游戏数值）----
-var _selected_level: int = 1
-var _unlocked_level: int = 1
-var _level_buttons: Dictionary = {}  # int -> Button
+## ---- UI 内部状态（仅行引用，不含任何游戏数值）----
 var _mech_rows: Dictionary = {}      # StringName -> { stats_label, exp_label, upgrade_button }
 
 
@@ -69,11 +70,10 @@ func _ready() -> void:
 	Contract.owned_mechs_updated.connect(_on_owned_mechs_updated)
 	Contract.battle_star.connect(_on_battle_star)
 	_collect_button.pressed.connect(_on_collect_pressed)
-	_enter_battle_button.pressed.connect(_on_enter_battle_pressed)
+	_challenge_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
 	_gacha_button.pressed.connect(_on_gacha_pressed)
 	_formation_button.pressed.connect(_on_formation_pressed)
-	_build_level_buttons()
 	_rebuild_mech_rows()
 	_seed_initial_state()
 
@@ -126,9 +126,11 @@ func _on_owned_mechs_updated(_ids: Array) -> void:
 
 
 func _on_level_cleared(level: int, first_clear: bool) -> void:
+	# v0.9：首通奖励 = 金币 + 钻石 + 小钰碎片（普通 1 片 / 章节 BOSS 3 片）
 	if first_clear:
 		var reward: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward", 0))
-		_message_label.text = "第 %d 关首通！获得 %d 金币" % [level, reward]
+		var diamond: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward_diamond", 0))
+		_message_label.text = "首通奖励：金币 +%d 钻石 +%d 小钰碎片 ×%d" % [reward, diamond, _first_clear_frag(level)]
 	else:
 		_message_label.text = "第 %d 关已通关" % level
 
@@ -138,11 +140,9 @@ func _on_battle_star(star: int) -> void:
 	_message_label.text = "本关评价：%d 星！" % star
 
 
-func _on_level_progress_changed(level: int) -> void:
-	_unlocked_level = clampi(level, 1, Data.MAX_LEVEL)
-	if _selected_level < _unlocked_level:
-		_selected_level = _unlocked_level  # 新关解锁后自动选中，方便连续推关
-	_refresh_level_buttons()
+func _on_level_progress_changed(_level: int) -> void:
+	# v0.9：主线不可选关——刷新"挑战第 N 关"按钮
+	_refresh_challenge()
 
 
 ## ------------------------------------------------------------------
@@ -154,9 +154,10 @@ func _on_collect_pressed() -> void:
 
 
 func _on_enter_battle_pressed() -> void:
-	var level: int = _selected_level
-	if level < 1 or level > _unlocked_level:
-		_message_label.text = "该关卡尚未解锁"
+	# v0.9：主线只挑战"当前最高未通关的下一关"（Game 校验，不可选关）
+	var level: int = Game.get_next_level()
+	if level < 1 or level > Data.MAX_LEVEL:
+		_message_label.text = "主线已全部通关"
 		return
 	Game.start_battle(level)
 	get_tree().change_scene_to_file("res://scenes/Battle.tscn")
@@ -202,34 +203,16 @@ func _format_num(n: int) -> String:
 
 
 ## ------------------------------------------------------------------
-## 关卡选择（数量与锁定状态来自 Data / Game 信号）
+## 主线挑战（v0.9：不可选关，只显示并挑战"当前最高未通关的下一关"）
 ## ------------------------------------------------------------------
-func _build_level_buttons() -> void:
-	for level in range(1, Data.MAX_LEVEL + 1):
-		var btn := Button.new()
-		btn.text = "第 %d 关" % level
-		btn.toggle_mode = true
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.pressed.connect(_on_level_button_pressed.bind(level))
-		_level_box.add_child(btn)
-		_level_buttons[level] = btn
-
-
-func _on_level_button_pressed(level: int) -> void:
-	_selected_level = level
-	_refresh_level_buttons()
-
-
-func _refresh_level_buttons() -> void:
-	for level in _level_buttons:
-		var btn: Button = _level_buttons[level]
-		var locked: bool = level > _unlocked_level
-		btn.disabled = locked
-		btn.button_pressed = (level == _selected_level) and not locked
-		if locked:
-			btn.text = "第 %d 关（未解锁）" % level
-		else:
-			btn.text = "第 %d 关" % level
+func _refresh_challenge() -> void:
+	var next: int = Game.get_next_level()
+	if next > Data.MAX_LEVEL:
+		_challenge_button.text = "主线已全部通关"
+		_challenge_button.disabled = true
+	else:
+		_challenge_button.text = "挑战第 %d 关" % next
+		_challenge_button.disabled = false
 
 
 ## ------------------------------------------------------------------
@@ -330,8 +313,6 @@ func _refresh_upgrade_buttons() -> void:
 ## 均来自 Game 公开状态
 ## ------------------------------------------------------------------
 func _seed_initial_state() -> void:
-	_unlocked_level = clampi(int(Game.unlocked_level), 1, Data.MAX_LEVEL)
-	_selected_level = _unlocked_level
 	_gold_label.text = "金币：%d" % Game.gold
 	_idle_rewards_label.text = "待收获：金币 +%d 经验 +%d" % [roundi(Game.idle_pending), roundi(Game.idle_pending_exp)]
 	_diamond_label.text = "钻石：%d" % Game.diamond
@@ -343,19 +324,28 @@ func _seed_initial_state() -> void:
 		_render_mech_row(id, level, atk)
 		var exp: int = int(Game.mech_exp.get(id, 0))
 		_render_mech_exp(id, exp, Game.upgrade_exp_cost(id))
-	_refresh_level_buttons()
+	_refresh_challenge()
 	_refresh_upgrade_buttons()
 	# 上次通关消息（v0.5：Game.last_clear 内存态、不入档；战斗胜利返回后重入显示）。
 	# 展示在独立标签 last_clear_label，不占用 message_label（后者留给即时提示）。
-	# v0.8：追加该关星级（Game.level_stars，只读）。
+	# v0.8：追加该关星级；v0.9：首通奖励明细含小钰碎片。
 	if not Game.last_clear.is_empty():
 		var lc: Dictionary = Game.last_clear
 		var level: int = int(lc.get("level", 0))
 		var star: int = int(Game.level_stars.get(level, 0))
 		if bool(lc.get("first_clear", false)):
-			_last_clear_label.text = "上次通关：第 %d 关（首通）★%d 奖励 +%d 金币" % [level, star, int(lc.get("reward", 0))]
+			var reward: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward", 0))
+			var diamond: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward_diamond", 0))
+			_last_clear_label.text = "上次通关：第 %d 关（首通）★%d\n首通奖励：金币 +%d 钻石 +%d 小钰碎片 ×%d" % [level, star, reward, diamond, _first_clear_frag(level)]
 		else:
 			_last_clear_label.text = "上次通关：第 %d 关（重复通关）★%d" % [level, star]
 	# v0.8：章节星数宝箱提示（Game.chapter_chest_claimed 内存态；开启时随快照提示一次）
 	if Game.chapter_chest_claimed:
 		_message_label.text = "章节星数宝箱已开启！获得 %d 金币 + %d 钻石" % [Data.CHAPTER_CHEST_GOLD, Data.CHAPTER_CHEST_DIAMOND]
+
+
+## 首通小钰碎片数（普通关 1 片 / 章节 BOSS 关 3 片；Data 常量，只读）
+func _first_clear_frag(level: int) -> int:
+	if int(Data.CHAPTERS.get(1, {}).get("boss_level", 0)) == level:
+		return Data.XIAOYU_FRAGMENT_BOSS
+	return Data.XIAOYU_FRAGMENT_FIRST_CLEAR

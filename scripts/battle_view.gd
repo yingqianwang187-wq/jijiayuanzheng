@@ -8,7 +8,8 @@
 #            battle_prompt / battle_star / level_cleared / battle_failed
 #          - 显示：双方 3x3 九宫格站位（血条/能量条/状态）、技能名、波次、分色提示、
 #            星级、简版伤害统计；按钮只调入口（2x → Game.toggle_accelerate；
-#            扫荡 → Game.sweep_level；开始/重试 → Game.start_battle；返回 → Game.stop_battle + 切场景）
+#            开始/重试 → Game.start_battle；返回 → Game.stop_battle + 切场景；
+#            v0.9：主线无扫荡入口，扫荡仅限秘境、阶段 3 实装）
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          无物理碰撞 / 位移运算、不自己扣血；一切更新值以 Game 信号参数为准。
 # 布局快照说明：九宫格站位（row/col）与能量初值等信号不携带，故 _ready 与波次切换
@@ -32,7 +33,6 @@ extends Control
 @onready var _stat_label: Label = $root_box/stat_label
 @onready var _status_label: Label = $root_box/status_label
 @onready var _accelerate_button: Button = $root_box/button_row/accelerate_button
-@onready var _sweep_button: Button = $root_box/button_row/sweep_button
 @onready var _retry_button: Button = $root_box/button_row/retry_button
 @onready var _back_button: Button = $root_box/button_row/back_button
 
@@ -60,7 +60,6 @@ func _ready() -> void:
 	Contract.level_cleared.connect(_on_level_cleared)
 	Contract.battle_failed.connect(_on_battle_failed)
 	_accelerate_button.toggled.connect(_on_accelerate_toggled)
-	_sweep_button.pressed.connect(_on_sweep_pressed)
 	_retry_button.pressed.connect(_on_retry_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 	_mech_cells = _build_grid(_my_grid)
@@ -174,10 +173,6 @@ func _on_battle_failed(level: int) -> void:
 ## ------------------------------------------------------------------
 func _on_accelerate_toggled(on: bool) -> void:
 	Game.toggle_accelerate(on)
-
-
-func _on_sweep_pressed() -> void:
-	Game.sweep_level(_battle_level)  # 仅已通关有效；结果经 battle_star / battle_prompt 回发
 
 
 func _on_retry_pressed() -> void:

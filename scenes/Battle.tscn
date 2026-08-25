@@ -122,11 +122,6 @@ size_flags_horizontal = 3
 toggle_mode = true
 text = "2x 加速"
 
-[node name="sweep_button" type="Button" parent="root_box/button_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "扫荡"
-
 [node name="retry_button" type="Button" parent="root_box/button_row"]
 visible = false
 layout_mode = 2
