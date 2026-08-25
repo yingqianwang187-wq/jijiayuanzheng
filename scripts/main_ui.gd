@@ -47,6 +47,7 @@ extends Control
 @onready var _enter_battle_button: Button = $root_box/bottom_row/enter_battle_button
 @onready var _save_button: Button = $root_box/bottom_row/save_button
 @onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
+@onready var _formation_button: Button = $root_box/bottom_row/formation_button
 
 ## ---- UI 内部状态（仅关卡选择与行引用，不含任何游戏数值）----
 var _selected_level: int = 1
@@ -66,10 +67,12 @@ func _ready() -> void:
 	Contract.diamond_changed.connect(_on_diamond_changed)
 	Contract.fragments_updated.connect(_on_fragments_updated)
 	Contract.owned_mechs_updated.connect(_on_owned_mechs_updated)
+	Contract.battle_star.connect(_on_battle_star)
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_enter_battle_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
 	_gacha_button.pressed.connect(_on_gacha_pressed)
+	_formation_button.pressed.connect(_on_formation_pressed)
 	_build_level_buttons()
 	_rebuild_mech_rows()
 	_seed_initial_state()
@@ -130,6 +133,11 @@ func _on_level_cleared(level: int, first_clear: bool) -> void:
 		_message_label.text = "第 %d 关已通关" % level
 
 
+func _on_battle_star(star: int) -> void:
+	# v0.8：星级评价（战斗场景发出的信号主界面通常收不到，重入时由快照 last_clear 展示）
+	_message_label.text = "本关评价：%d 星！" % star
+
+
 func _on_level_progress_changed(level: int) -> void:
 	_unlocked_level = clampi(level, 1, Data.MAX_LEVEL)
 	if _selected_level < _unlocked_level:
@@ -162,6 +170,11 @@ func _on_save_pressed() -> void:
 func _on_gacha_pressed() -> void:
 	# v0.7：进入抽卡界面（阶段 1）
 	get_tree().change_scene_to_file("res://scenes/Gacha.tscn")
+
+
+func _on_formation_pressed() -> void:
+	# v0.8：进入布阵界面（战斗 2.0）
+	get_tree().change_scene_to_file("res://scenes/Formation.tscn")
 
 
 ## ------------------------------------------------------------------
@@ -334,10 +347,15 @@ func _seed_initial_state() -> void:
 	_refresh_upgrade_buttons()
 	# 上次通关消息（v0.5：Game.last_clear 内存态、不入档；战斗胜利返回后重入显示）。
 	# 展示在独立标签 last_clear_label，不占用 message_label（后者留给即时提示）。
-	# 文案：仅首通显示"奖励 +X 金币"；重复通关无金币奖励，不显示奖励部分。
+	# v0.8：追加该关星级（Game.level_stars，只读）。
 	if not Game.last_clear.is_empty():
 		var lc: Dictionary = Game.last_clear
+		var level: int = int(lc.get("level", 0))
+		var star: int = int(Game.level_stars.get(level, 0))
 		if bool(lc.get("first_clear", false)):
-			_last_clear_label.text = "上次通关：第 %d 关（首通）奖励 +%d 金币" % [int(lc.get("level", 0)), int(lc.get("reward", 0))]
+			_last_clear_label.text = "上次通关：第 %d 关（首通）★%d 奖励 +%d 金币" % [level, star, int(lc.get("reward", 0))]
 		else:
-			_last_clear_label.text = "上次通关：第 %d 关（重复通关）" % int(lc.get("level", 0))
+			_last_clear_label.text = "上次通关：第 %d 关（重复通关）★%d" % [level, star]
+	# v0.8：章节星数宝箱提示（Game.chapter_chest_claimed 内存态；开启时随快照提示一次）
+	if Game.chapter_chest_claimed:
+		_message_label.text = "章节星数宝箱已开启！获得 %d 金币 + %d 钻石" % [Data.CHAPTER_CHEST_GOLD, Data.CHAPTER_CHEST_DIAMOND]

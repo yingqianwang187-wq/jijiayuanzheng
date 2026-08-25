@@ -123,3 +123,8 @@ text = "手动存档"
 layout_mode = 2
 size_flags_horizontal = 3
 text = "抽卡"
+
+[node name="formation_button" type="Button" parent="root_box/bottom_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "布阵"

@@ -507,7 +507,7 @@ func _cast_skill(unit, skill: Dictionary, is_ultimate: bool) -> void:
 	# 非 damage 型技能的 bonus（damage 型在 _deal_damage 内处理）
 	if effect != "damage" and skill.has("bonus"):
 		_apply_skill_bonus(unit, targets, skill.bonus, 0)
-	Contract.skill_cast.emit(unit.side, unit.id, StringName(str(skill.id)), value)
+	Contract.skill_cast.emit(unit.side, unit.id, StringName(str(skill.get("id", &"enemy_skill"))), value)
 
 ## 技能/普攻的附加效果（bonus 数组）
 func _apply_skill_bonus(attacker, targets: Array, bonus: Array, dealt: int) -> void:
@@ -798,7 +798,7 @@ func _handle_kill(attacker, target, skill) -> void:
 
 ## 同排下一个存活目标（追击用）
 func _next_target_same_row(attacker, target) -> Dictionary:
-	var enemies := battle.enemies if attacker.side == &"mech" else battle.mechs
+	var enemies: Array = battle.enemies if attacker.side == &"mech" else battle.mechs
 	for e in enemies:
 		if bool(e.alive) and int(e.row) == int(target.row) and StringName(str(e.id)) != StringName(str(target.id)):
 			return e
@@ -878,8 +878,8 @@ func _apply_passive_per_round_end(unit) -> void:
 
 ## 目标选择
 func _targets_for(unit, target_type: String) -> Array:
-	var enemies := battle.enemies if unit.side == &"mech" else battle.mechs
-	var allies := battle.mechs if unit.side == &"mech" else battle.enemies
+	var enemies: Array = battle.enemies if unit.side == &"mech" else battle.mechs
+	var allies: Array = battle.mechs if unit.side == &"mech" else battle.enemies
 	match target_type:
 		"single":
 			var t := _default_attack_target(unit)
@@ -913,7 +913,7 @@ func _targets_for(unit, target_type: String) -> Array:
 
 ## 默认攻击目标：嘲讽优先 → 同列最近 → 前排（row 小）
 func _default_attack_target(attacker) -> Dictionary:
-	var enemies := battle.enemies if attacker.side == &"mech" else battle.mechs
+	var enemies: Array = battle.enemies if attacker.side == &"mech" else battle.mechs
 	for e in enemies:
 		if bool(e.alive) and int(e.taunt_turns) > 0:
 			return e
@@ -932,7 +932,7 @@ func _default_attack_target(attacker) -> Dictionary:
 
 ## 敌方存活中血量最低
 func _lowest_hp_target(attacker_side) -> Dictionary:
-	var enemies := battle.enemies if attacker_side == &"mech" else battle.mechs
+	var enemies: Array = battle.enemies if attacker_side == &"mech" else battle.mechs
 	var best: Dictionary = {}
 	var best_hp := 1 << 30
 	for e in enemies:
@@ -943,7 +943,7 @@ func _lowest_hp_target(attacker_side) -> Dictionary:
 
 ## 我方存活中血量最低
 func _lowest_hp_ally(attacker_side) -> Dictionary:
-	var allies := battle.mechs if attacker_side == &"mech" else battle.enemies
+	var allies: Array = battle.mechs if attacker_side == &"mech" else battle.enemies
 	var best: Dictionary = {}
 	var best_hp := 1 << 30
 	for a in allies:

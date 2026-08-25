@@ -1,0 +1,79 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/formation_ui.gd" id="1_script"]
+
+[node name="Formation" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.09, 0.11, 0.15, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 10
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "布阵"
+horizontal_alignment = 1
+
+[node name="hint_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "选择机娘后点击九宫格放置（≤5 格，≥2 格）；点已占格可移除"
+horizontal_alignment = 1
+
+[node name="grid" type="GridContainer" parent="root_box"]
+layout_mode = 2
+columns = 3
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="candidate_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 已拥有机娘 ——"
+horizontal_alignment = 1
+
+[node name="candidate_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="save_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "保存阵型"
+
+[node name="preset_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 阵型预设 ——"
+horizontal_alignment = 1
+
+[node name="preset_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="message_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="back_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "返回主界面"

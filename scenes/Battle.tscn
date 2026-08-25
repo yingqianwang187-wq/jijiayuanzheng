@@ -28,36 +28,84 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 offset_left = 24.0
-offset_top = 24.0
+offset_top = 16.0
 offset_right = -24.0
-offset_bottom = -24.0
-theme_override_constants/separation = 10
+offset_bottom = -16.0
+theme_override_constants/separation = 6
 
 [node name="title_label" type="Label" parent="root_box"]
 layout_mode = 2
 text = "战斗"
 horizontal_alignment = 1
 
-[node name="tick_label" type="Label" parent="root_box"]
+[node name="info_row" type="HBoxContainer" parent="root_box"]
 layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="wave_label" type="Label" parent="root_box/info_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "第 1/1 波"
+horizontal_alignment = 1
+
+[node name="tick_label" type="Label" parent="root_box/info_row"]
+layout_mode = 2
+size_flags_horizontal = 3
 text = "第 0 轮"
 horizontal_alignment = 1
 
-[node name="my_side_title" type="Label" parent="root_box"]
+[node name="star_label" type="Label" parent="root_box/info_row"]
 layout_mode = 2
-text = "—— 我方机娘 ——"
+size_flags_horizontal = 3
+text = ""
 horizontal_alignment = 1
 
-[node name="my_side_box" type="VBoxContainer" parent="root_box"]
+[node name="boards_row" type="HBoxContainer" parent="root_box"]
 layout_mode = 2
+theme_override_constants/separation = 16
 
-[node name="enemy_side_title" type="Label" parent="root_box"]
+[node name="my_column" type="VBoxContainer" parent="root_box/boards_row"]
 layout_mode = 2
-text = "—— 敌方 ——"
+size_flags_horizontal = 3
+
+[node name="my_side_title" type="Label" parent="root_box/boards_row/my_column"]
+layout_mode = 2
+text = "我方"
 horizontal_alignment = 1
 
-[node name="enemy_side_box" type="VBoxContainer" parent="root_box"]
+[node name="my_grid" type="GridContainer" parent="root_box/boards_row/my_column"]
 layout_mode = 2
+columns = 3
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+
+[node name="enemy_column" type="VBoxContainer" parent="root_box/boards_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="enemy_side_title" type="Label" parent="root_box/boards_row/enemy_column"]
+layout_mode = 2
+text = "敌方"
+horizontal_alignment = 1
+
+[node name="enemy_grid" type="GridContainer" parent="root_box/boards_row/enemy_column"]
+layout_mode = 2
+columns = 3
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+
+[node name="prompt_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 战斗提示 ——"
+horizontal_alignment = 1
+
+[node name="prompt_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="stat_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "伤害统计：—"
+horizontal_alignment = 1
 
 [node name="status_label" type="Label" parent="root_box"]
 layout_mode = 2
@@ -66,12 +114,18 @@ horizontal_alignment = 1
 
 [node name="button_row" type="HBoxContainer" parent="root_box"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 8
 
-[node name="start_button" type="Button" parent="root_box/button_row"]
+[node name="accelerate_button" type="Button" parent="root_box/button_row"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "开始战斗"
+toggle_mode = true
+text = "2x 加速"
+
+[node name="sweep_button" type="Button" parent="root_box/button_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "扫荡"
 
 [node name="retry_button" type="Button" parent="root_box/button_row"]
 visible = false
