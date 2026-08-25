@@ -20,6 +20,7 @@ var gold: int = 0
 var unlocked_level: int = 1                     # 已解锁的最高关卡（初始 = 第 1 关）
 var mech_levels: Dictionary = {}                # { StringName id: int level }
 var mech_exp: Dictionary = {}                   # { StringName id: int exp } 机娘经验（胜利获得，升级消耗）
+var mech_stars: Dictionary = {}                 # { StringName id: int star } 机娘星级（1~10，v0.10）
 var cleared_levels: Dictionary = {}             # { int level: true } 已首通关卡（内存态）
 
 ## 挂机"点一下收获，同产金币+经验"（契约 §1.2 / §3.2，v0.4 / v0.6）
@@ -109,12 +110,14 @@ func _load_initial_state() -> void:
 		var mid := StringName(str(key))
 		if Data.MECH_GIRLS.has(mid):
 			owned_mechs[mid] = true
-	# 成长状态只建"已拥有"机娘（未拥有无等级/经验；抽到新机娘时再初始化）
+	# 成长状态只建"已拥有"机娘（未拥有无等级/经验/星级；抽到新机娘时再初始化）
 	mech_levels.clear()
 	mech_exp.clear()
+	mech_stars.clear()
 	for mech_id in _owned_mech_ids():
 		mech_levels[mech_id] = 1
 		mech_exp[mech_id] = 0
+		mech_stars[mech_id] = 1
 	var mechs: Dictionary = data.get("mechs", {})
 	for key in mechs:
 		var mech_id := StringName(str(key))
@@ -122,6 +125,8 @@ func _load_initial_state() -> void:
 			var entry: Dictionary = mechs[key]
 			mech_levels[mech_id] = maxi(int(entry.get("level", 1)), 1)
 			mech_exp[mech_id] = maxi(int(entry.get("exp", 0)), 0)
+			# 星级（v0.10）：旧档无此字段 → 默认 1
+			mech_stars[mech_id] = clampi(int(entry.get("star", 1)), 1, Data.MAX_STAR)
 	# 首通记录恢复：直接读存档 first_cleared（契约 §3.2）
 	cleared_levels.clear()
 	for l in data.get("first_cleared", []):
@@ -205,25 +210,67 @@ func _emit_initial_state() -> void:
 		var s := _mech_stats(mech_id)
 		Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
 		Contract.mech_exp_updated.emit(mech_id, int(mech_exp.get(mech_id, 0)), _upgrade_exp_cost(mech_id, int(mech_levels.get(mech_id, 1))))
+		Contract.mech_star_updated.emit(mech_id, int(mech_stars.get(mech_id, 1)), get_level_cap(mech_id))
 	Contract.exp_balance_updated.emit(exp_balance)
 	Contract.level_progress_changed.emit(unlocked_level)
 	Contract.idle_rewards_updated.emit(roundi(idle_pending), roundi(idle_pending_exp))
 	Contract.owned_mechs_updated.emit(_owned_mech_ids())
 	Contract.formation_changed.emit(formation)
 
-## 由 Data 基础值 + 当前等级计算机娘完整属性（hp 为满血）
+## 由 Data 基础值 + 当前等级 + 星级计算机娘完整属性（hp 为满血）
+## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
 func _mech_stats(mech_id: StringName) -> Dictionary:
 	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
 	var level: int = int(mech_levels.get(mech_id, 1))
+	var star: int = int(mech_stars.get(mech_id, 1))
 	var g: Dictionary = cfg.growth
 	var spd_gain: int = floori(float(level - 1) / float(g.spd_every)) * int(g.spd_amount)
+	var star_mult: float = pow(1.0 + Data.STAR_STAT_GAIN, float(star - 1))
 	return {
 		"level": level,
-		"hp": int(cfg.base_hp) + (level - 1) * int(g.hp),
-		"atk": int(cfg.base_atk) + (level - 1) * int(g.atk),
-		"def": int(cfg.base_def) + (level - 1) * int(g.def),
-		"spd": int(cfg.base_spd) + spd_gain,
+		"star": star,
+		"hp": int(round(float(int(cfg.base_hp) + (level - 1) * int(g.hp)) * star_mult)),
+		"atk": int(round(float(int(cfg.base_atk) + (level - 1) * int(g.atk)) * star_mult)),
+		"def": int(round(float(int(cfg.base_def) + (level - 1) * int(g.def)) * star_mult)),
+		"spd": int(round(float(int(cfg.base_spd) + spd_gain) * star_mult)),
 	}
+
+## 等级上限（v0.10）：基础 100 + 星级>5 每星 +20（最高 200）
+func get_level_cap(mech_id: StringName) -> int:
+	var star: int = int(mech_stars.get(mech_id, 1))
+	return Data.BASE_LEVEL_CAP + maxi(star - 5, 0) * Data.STAR_LEVEL_CAP_GAIN
+
+## 升星消耗（v0.10）：返回 {fragments: 所需碎片, level_required: 所需等级（6 星起 100，1~5 星 0）}
+func star_cost(mech_id: StringName) -> Dictionary:
+	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
+	var star: int = int(mech_stars.get(mech_id, 1))
+	var frag_needed: int = int(Data.STAR_FRAGMENT_COST[int(cfg.rarity)])
+	var level_required: int = 0
+	if star >= 5:
+		level_required = Data.STAR_6_UNLOCK_LEVEL
+	return { "fragments": frag_needed, "level_required": level_required }
+
+## ---------------------------------------------------------------
+## 升星（契约 §3.6 / §3.8 入口，v0.10）：扣碎片 → star+1 → 发 mech_star_updated → 存档
+## 校验：已拥有、star < MAX_STAR、碎片足够；6~10 星（当前 star ≥ 5）需等级 ≥ 100
+## 签名：upgrade_star(mech_id: StringName)
+## ---------------------------------------------------------------
+func upgrade_star(mech_id: StringName) -> void:
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+		return
+	var star: int = int(mech_stars.get(mech_id, 1))
+	if star >= Data.MAX_STAR:
+		return
+	var cost: Dictionary = star_cost(mech_id)
+	if int(fragments.get(mech_id, 0)) < int(cost.fragments):
+		return
+	if int(cost.level_required) > 0 and int(mech_levels.get(mech_id, 1)) < int(cost.level_required):
+		return
+	fragments[mech_id] = int(fragments.get(mech_id, 0)) - int(cost.fragments)
+	mech_stars[mech_id] = star + 1
+	Contract.fragments_updated.emit(mech_id, int(fragments[mech_id]))
+	Contract.mech_star_updated.emit(mech_id, star + 1, get_level_cap(mech_id))
+	Save.save_game()
 
 ## 升级金币费用：第 N 级升 N+1 级 = 20 × 1.18^(N-1)（四舍五入，设计文档 §8.4）
 func _upgrade_cost(mech_id: StringName, current_level: int) -> int:
@@ -245,6 +292,9 @@ func upgrade(mech_id: StringName) -> void:
 	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
 		return
 	var current_level: int = int(mech_levels.get(mech_id, 1))
+	# 等级上限（v0.10）：满级不可再升
+	if current_level >= get_level_cap(mech_id):
+		return
 	var current_exp: int = int(mech_exp.get(mech_id, 0))
 	var gold_cost: int = _upgrade_cost(mech_id, current_level)
 	var exp_cost: int = _upgrade_exp_cost(mech_id, current_level)
@@ -517,6 +567,11 @@ func _apply_skill_bonus(attacker, targets: Array, bonus: Array, dealt: int) -> v
 			continue
 		for b in bonus:
 			match str(b.kind):
+				"combo":
+					# 连击算普攻：可暴击闪避、命中可获能量（v0.10）
+					var cdmg: int = _deal_damage(attacker, t, float(b.rate), null, false)
+					if cdmg > 0:
+						_gain_energy(attacker, Data.ENERGY_GAIN_HIT)
 				"burn":
 					if randf() < float(b.get("chance", 1.0)):
 						_apply_status(t, &"burn", int(b.get("duration", Data.STATUS_DURATION_DEFAULT)), float(b.get("rate", 0.3)), float(attacker.atk))
@@ -538,7 +593,9 @@ func _apply_skill_bonus(attacker, targets: Array, bonus: Array, dealt: int) -> v
 					_cleanse_unit(t)
 
 ## 造成伤害主流程（闪避/斩杀/克制/暴击/减防/下限/护盾/能量/附加/击杀）
-func _deal_damage(attacker, target, rate: float, skill, is_ultimate: bool) -> int:
+## allow_chase：本次伤害的击杀是否允许再触发追击（追击不可再触发追击，v0.10）
+## allow_counter：本次受击是否允许触发反击/反弹（防递归）
+func _deal_damage(attacker, target, rate: float, skill, is_ultimate: bool, allow_chase: bool = true, allow_counter: bool = true) -> int:
 	if _roll_dodge(target):
 		Contract.battle_prompt.emit(&"dodge", "闪避")
 		_on_dodge(target)
@@ -583,9 +640,9 @@ func _deal_damage(attacker, target, rate: float, skill, is_ultimate: bool) -> in
 			"stun_chance":
 				if randf() < float(eff.chance):
 					_apply_status(target, StringName(eff.get("status", "stun")), int(eff.duration), 0.0, 0.0)
-	_on_taken_hit(target, attacker, final_dmg)
+	_on_taken_hit(target, attacker, final_dmg, allow_counter)
 	if not bool(target.alive):
-		_handle_kill(attacker, target, skill)
+		_handle_kill(attacker, target, skill, allow_chase)
 	if crit:
 		Contract.battle_prompt.emit(&"crit", "暴击 " + str(final_dmg))
 	else:
@@ -661,7 +718,10 @@ func _apply_debuff(unit, stat: StringName, value: float, duration: int) -> void:
 	_apply_buff(unit, stat, value, duration)
 
 ## 状态（眩晕/灼烧/中毒/冰冻；不叠加只刷新时长）
+## 被控期间不吃新控（v0.10：已有眩晕/冰冻时，新控制不生效）
 func _apply_status(unit, status_id: StringName, duration: int, rate: float, source_atk: float) -> void:
+	if (status_id == &"stun" or status_id == &"freeze") and (unit.statuses.has(&"stun") or unit.statuses.has(&"freeze")):
+		return
 	if not unit.statuses.has(status_id):
 		unit.statuses[status_id] = { "duration": duration, "rate": rate, "source_atk": source_atk }
 	else:
@@ -686,9 +746,11 @@ func _cleanse_unit(unit) -> void:
 			unit.buffs.erase(bkey)
 			Contract.status_changed.emit(unit.side, unit.id, StringName(bkey), 0)
 
-## 能量变化（100 满后不再加）
+## 能量变化（100 满后不再加；被控（眩晕/冰冻）不加能量，v0.10）
 func _gain_energy(unit, amount: int) -> void:
 	if int(unit.energy) >= Data.ENERGY_MAX:
+		return
+	if unit.statuses.has(&"stun") or unit.statuses.has(&"freeze"):
 		return
 	unit.energy = mini(int(unit.energy) + amount, Data.ENERGY_MAX)
 	_emit_energy(unit)
@@ -768,22 +830,22 @@ func _passive_execute_bonus(attacker, target) -> float:
 			total += float(eff.value)
 	return 1.0 + total
 
-## 被动：受击触发（反击/反弹）
-func _on_taken_hit(target, attacker, dmg: int) -> void:
-	if not bool(target.alive):
+## 被动：受击触发（反击/反弹；反击算普攻可暴击闪避可获能量，但不触发对方反击/反弹，防递归，v0.10）
+func _on_taken_hit(target, attacker, dmg: int, allow_counter: bool = true) -> void:
+	if not bool(target.alive) or not allow_counter:
 		return
 	for eff in target.passive.effects:
 		if str(eff.kind) == "counter" and randf() < float(eff.chance):
-			var cdmg: int = _simple_damage(target, attacker, float(eff.rate))
+			var cdmg: int = _deal_damage(target, attacker, float(eff.rate), null, false, true, false)
 			if bool(eff.get("armor_break", false)):
 				_apply_debuff(attacker, &"def", 0.30, Data.STATUS_DURATION_DEFAULT)
 			Contract.battle_prompt.emit(&"hit", "反击 " + str(cdmg))
 		elif str(eff.kind) == "reflect" and randf() < float(eff.chance):
-			var rdmg: int = _simple_damage(target, attacker, float(eff.rate))
+			var rdmg: int = _deal_damage(target, attacker, float(eff.rate), null, false, true, false)
 			Contract.battle_prompt.emit(&"hit", "反弹 " + str(rdmg))
 
-## 击杀处理（追击 / 击杀回血 / 击杀回能量）
-func _handle_kill(attacker, target, skill) -> void:
+## 击杀处理（追击 / 击杀回血 / 击杀回能量；追击算普攻可获能量，追击不可再触发追击，v0.10）
+func _handle_kill(attacker, target, skill, allow_chase: bool = true) -> void:
 	Contract.battle_prompt.emit(&"kill", "击杀")
 	for eff in attacker.passive.effects:
 		if str(eff.kind) == "kill_heal":
@@ -792,9 +854,12 @@ func _handle_kill(attacker, target, skill) -> void:
 		for b in skill.get("bonus", []):
 			match str(b.kind):
 				"chase":
-					var next_target := _next_target_same_row(attacker, target)
-					if not next_target.is_empty():
-						_deal_damage(attacker, next_target, float(b.rate), skill, true)
+					if allow_chase:
+						var next_target := _next_target_same_row(attacker, target)
+						if not next_target.is_empty():
+							var cdmg: int = _deal_damage(attacker, next_target, float(b.rate), skill, true, false, true)
+							if cdmg > 0:
+								_gain_energy(attacker, Data.ENERGY_GAIN_HIT)
 				"heal_self_on_kill":
 					if str(b.get("resource", "hp")) == "energy":
 						_gain_energy(attacker, int(round(float(b.value) * 100.0)))
@@ -1057,10 +1122,12 @@ func _resolve_victory() -> void:
 		level_stars[level] = star
 	# 章节星数宝箱（第 1 章 5 关 × 3 星，集满 90%）
 	_check_chapter_chest()
-	# 胜利经验：全体上阵机娘（含本局阵亡者）进个人条
+	# 胜利经验：全体上阵机娘（含本局阵亡者）进个人条；满级经验不累计（v0.10）
 	var exp_gain: int = int(Data.LEVELS[level].victory_reward_exp)
 	for mech_id in battle.mech_ids:
 		var mid := StringName(mech_id)
+		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
+			continue
 		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
 		mech_exp[mid] = new_exp
 		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
@@ -1201,7 +1268,13 @@ func summon(pool: StringName, times: int) -> void:
 	if times != 1 and times != 10:
 		return
 	var cost: int = _summon_cost(pool, times)
-	if cost > 0 and diamond < cost:
+	# 召唤券优先抵扣（1 券 = 300 钻 = 1 抽，v0.10）：先扣券，不足部分扣钻石
+	var ticket_use: int = 0
+	var diamond_need: int = cost
+	if cost > 0:
+		ticket_use = mini(summon_ticket, floori(float(cost) / float(Data.SUMMON_TICKET_VALUE)))
+		diamond_need = cost - ticket_use * Data.SUMMON_TICKET_VALUE
+	if diamond_need > diamond:
 		return  # 钻石不足：失败不发信号
 	# 计费状态消耗：免费十连优先（不耗新手池半价次数），否则新手池半价扣次数
 	if times == 10 and novice_free_pull:
@@ -1209,7 +1282,8 @@ func summon(pool: StringName, times: int) -> void:
 	elif pool == &"novice" and novice_pool_left > 0:
 		novice_pool_left -= 1
 	if cost > 0:
-		diamond -= cost
+		summon_ticket -= ticket_use
+		diamond -= diamond_need
 		Contract.diamond_changed.emit(diamond)
 	var pool_cfg: Dictionary = Data.SUMMON_POOLS[pool]
 	# 新手池首十连保底：本次十连第 10 张必出保底位（星澜）
@@ -1295,6 +1369,7 @@ func _apply_summon_result(mech_id: StringName) -> Dictionary:
 		owned_mechs[mech_id] = true
 		mech_levels[mech_id] = 1
 		mech_exp[mech_id] = 0
+		mech_stars[mech_id] = 1
 		entry["is_new"] = true
 	return entry
 
@@ -1469,6 +1544,8 @@ func sweep_level(level: int) -> void:
 		sweep_ids = _owned_mech_ids()
 	for mech_id in sweep_ids:
 		var mid := StringName(mech_id)
+		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
+			continue
 		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
 		mech_exp[mid] = new_exp
 		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
@@ -1503,6 +1580,7 @@ func get_save_snapshot() -> Dictionary:
 		mechs[mech_id] = {
 			"level": int(mech_levels.get(mech_id, 1)),
 			"exp": int(mech_exp.get(mech_id, 0)),
+			"star": int(mech_stars.get(mech_id, 1)),
 		}
 	var first_cleared: Array = []
 	for l in cleared_levels:

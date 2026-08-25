@@ -112,6 +112,21 @@ const CHAPTER_CHEST_GOLD := 500
 const XIAOYU_FRAGMENT_FIRST_CLEAR := 1
 const XIAOYU_FRAGMENT_BOSS := 3
 
+## 机娘升星体系（设计文档 §2.1 / §8.4 / 附录 B，v0.18：1~10 星）
+const MAX_STAR := 10                          # 最高 10 星
+const STAR_STAT_GAIN := 0.08                  # 每星基础属性 +8%（×1.08^(star-1)）
+const STAR_FRAGMENT_COST := { Rarity.R: 30, Rarity.SR: 60, Rarity.SSR: 100 }  # 片/星
+const BASE_LEVEL_CAP := 100                   # 基础等级上限 100
+const STAR_6_UNLOCK_LEVEL := 100              # 6~10 星需等级满 100 才解锁
+const STAR_LEVEL_CAP_GAIN := 20               # 星级 > 5 每星 +20 级上限（最高 200）
+
+## 召唤券价值（设计文档 §8.4 / 附录 B，v0.18：1 券 = 300 钻 = 1 抽）
+const SUMMON_TICKET_VALUE := 300
+
+## 开局资源（设计文档 §8.4 / 附录 B，v0.18：仅新档金币 1000 + 钻石 300；机娘初始 1 级）
+const START_GOLD := 1000
+const START_DIAMOND := 300
+
 # ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------

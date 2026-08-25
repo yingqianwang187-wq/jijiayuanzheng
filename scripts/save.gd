@@ -59,6 +59,7 @@ func save_game() -> void:
 		save_dict["mechs"][str(key)] = {
 			"level": maxi(int(entry.get("level", 1)), 1),
 			"exp": maxi(int(entry.get("exp", 0)), 0),
+			"star": clampi(int(entry.get("star", 1)), 1, Data.MAX_STAR),
 		}
 	var first_cleared: Variant = snapshot.get("first_cleared", [])
 	if first_cleared is Array:
@@ -150,6 +151,8 @@ func load_game() -> Dictionary:
 				result["mechs"][mech_id] = {
 					"level": maxi(int(entry.get("level", 1)), 1),
 					"exp": maxi(int(entry.get("exp", 0)), 0),
+					# 星级（v0.10）：旧档无此字段 → 默认 1，补齐不丢
+					"star": clampi(int(entry.get("star", 1)), 1, Data.MAX_STAR),
 				}
 	var first_cleared: Variant = parsed_dict.get("first_cleared", [])
 	if first_cleared is Array:
@@ -232,18 +235,18 @@ func load_game() -> Dictionary:
 		result["chapter_chest_claimed"] = bool(parsed_dict["chapter_chest_claimed"])
 	return result
 
-## 默认档数据（契约 §3.2，v0.8）：金币/钻石/余额/待收获均 0、机娘取 Data 初始配置
-## （Lv1、个人经验 0）、拥有开局 2 位机娘、解锁关卡 1、first_cleared 为空、
-## pity 0、新手福利默认、阵型空（Game 启动时按拥有自动生成）、星级/BOSS 记录空
+## 默认档数据（契约 §3.2，v0.10）：开局资源 = 金币 1000 + 钻石 300（仅新档，v0.18）、
+## 机娘取 Data 初始配置（Lv1、个人经验 0、1 星）、拥有开局 2 位机娘、解锁关卡 1、
+## first_cleared 为空、pity 0、新手福利默认、阵型空（Game 启动时按拥有自动生成）
 func _default_data() -> Dictionary:
 	var mechs := {}
 	for mech_id in Data.START_MECHS:
-		mechs[mech_id] = { "level": 1, "exp": 0 }
+		mechs[mech_id] = { "level": 1, "exp": 0, "star": 1 }
 	var owned := {}
 	for mech_id in Data.START_MECHS:
 		owned[mech_id] = true
 	return {
-		"gold": 0,
+		"gold": Data.START_GOLD,
 		"exp_balance": 0,
 		"mechs": mechs,
 		"unlocked_level": 1,
@@ -251,7 +254,7 @@ func _default_data() -> Dictionary:
 		"idle_pending": 0,
 		"idle_pending_exp": 0,
 		"idle_last_time": int(Time.get_unix_time_from_system()),
-		"diamond": 0,
+		"diamond": Data.START_DIAMOND,
 		"summon_ticket": 0,
 		"fragments": {},
 		"owned_mechs": owned,
