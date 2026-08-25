@@ -1,15 +1,15 @@
 # ==================================================================
 # scripts/battle_view.gd —— 战斗画面脚本 2.0（挂在 scenes/Battle.tscn 根节点）
 # 作者   ：C（画面 + 界面）
-# 依据   ：docs/契约.md §3.4 / §3.5 / §3.6 / §3.9（v0.8）、scripts/contract.gd（只读）
+# 依据   ：docs/契约.md §3.4 / §3.5 / §3.6 / §3.9 / §3.10（v0.13）、scripts/contract.gd（只读）
 # 职责   ：战斗画面的纯显示层（契约 §3.4 / §3.9）：
-#          - 连接信号（11 个）：battle_tick / mech_girl_updated / enemy_updated /
+#          - 连接信号（12 个）：battle_tick / mech_girl_updated / enemy_updated /
 #            skill_cast / energy_changed / status_changed / wave_changed /
-#            battle_prompt / battle_star / level_cleared / battle_failed
+#            battle_prompt / battle_star / level_cleared / battle_failed / dungeon_reward
 #          - 显示：双方 3x3 九宫格站位（血条/能量条/状态）、技能名、波次、分色提示、
 #            星级、简版伤害统计；按钮只调入口（2x → Game.toggle_accelerate；
-#            开始/重试 → Game.start_battle；返回 → Game.stop_battle + 切场景；
-#            v0.9：主线无扫荡入口，扫荡仅限秘境、阶段 3 实装）
+#            开始/重试 → 主线 Game.start_battle / 秘境 Game.start_dungeon（v0.13 按 battle.mode）；
+#            返回 → Game.stop_battle + 切场景；v0.9：主线无扫荡入口）
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          无物理碰撞 / 位移运算、不自己扣血；一切更新值以 Game 信号参数为准。
 # 布局快照说明：九宫格站位（row/col）与能量初值等信号不携带，故 _ready 与波次切换
@@ -19,6 +19,10 @@
 #          集合才能展示状态图标（显示层聚合，不修改任何数值）。
 # 伤害统计：战斗结束时（battle_star / level_cleared / battle_failed）只读 Game.battle.mechs
 #          的 dmg_dealt / heal_done 汇总展示（Game 累计，UI 只显示）。
+# 秘境适配（v0.13）：按 Game.battle.mode（&"story" / &"dungeon"）——标题显示副本名·档位
+#          （Data.DUNGEONS[kind].name + 本地档位名）；失败重试调 Game.start_dungeon(kind, tier)
+#          （kind/tier 取 Game.battle.dungeon_ctx）；connect dungeon_reward 显示通关反馈
+#          （钻石 = Data.DUNGEONS 首通钻石，资源 = rewards 参数）。
 # ==================================================================
 extends Control
 
@@ -45,6 +49,12 @@ var _cell_statuses: Dictionary = {}         # id -> {status_id: duration}
 var _unit_names: Dictionary = {}            # id -> 显示名（提示用）
 var _battle_level: int = 1
 var _retry_level: int = 1
+var _battle_mode: StringName = &"story"     # &"story"（主线）/ &"dungeon"（秘境，v0.13）
+var _dungeon_kind: StringName = &""         # 秘境副本 kind（dungeon_ctx）
+var _dungeon_tier: int = 0                  # 秘境档位（dungeon_ctx）
+
+## 秘境档位名称（tier 0~4，与 Data.DUNGEONS tiers 顺序一致）
+const _TIER_NAMES := ["新手", "简单", "中等", "困难", "地狱"]
 
 
 func _ready() -> void:
@@ -59,6 +69,7 @@ func _ready() -> void:
 	Contract.battle_star.connect(_on_battle_star)
 	Contract.level_cleared.connect(_on_level_cleared)
 	Contract.battle_failed.connect(_on_battle_failed)
+	Contract.dungeon_reward.connect(_on_dungeon_reward)
 	_accelerate_button.toggled.connect(_on_accelerate_toggled)
 	_retry_button.pressed.connect(_on_retry_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
@@ -75,8 +86,16 @@ func _seed_initial_state() -> void:
 	if not Game.battle.active:
 		_status_label.text = "未在战斗中，请点击开始战斗"
 		return
-	_battle_level = int(Game.battle.level)
-	_title_label.text = "第 %d 关 · 战斗" % _battle_level
+	# v0.13：按模式分支——秘境（mode=dungeon）标题显示"副本名·档位"，主线保持"第 N 关 · 战斗"
+	_battle_mode = Game.battle.get("mode", &"story")
+	if _battle_mode == &"dungeon":
+		var ctx: Dictionary = Game.battle.get("dungeon_ctx", {})
+		_dungeon_kind = StringName(str(ctx.get("kind", "")))
+		_dungeon_tier = int(ctx.get("tier", 0))
+		_title_label.text = "%s·%s" % [_dungeon_name(_dungeon_kind), _tier_name(_dungeon_tier)]
+	else:
+		_battle_level = int(Game.battle.level)
+		_title_label.text = "第 %d 关 · 战斗" % _battle_level
 	_wave_label.text = "第 %d/%d 波" % [int(Game.battle.wave), int(Game.battle.total_waves)]
 	_accelerate_button.button_pressed = bool(Game.battle.accelerate)
 	_place_units(Game.battle.mechs, _mech_cells, _mech_cells_by_id, &"mech")
@@ -168,6 +187,19 @@ func _on_battle_failed(level: int) -> void:
 	_show_battle_stats()
 
 
+func _on_dungeon_reward(kind: StringName, tier: int, rewards: Dictionary) -> void:
+	# v0.13：秘境通关反馈——"副本名·档位 通关：钻石 +X 资源 +Y"
+	# 钻石 = 该档首通钻石（Data.DUNGEONS 静态表，只读）；资源 = rewards {kind, amount}
+	var diamond: int = 0
+	var tiers: Array = Data.DUNGEONS.get(kind, {}).get("tiers", [])
+	if tier >= 0 and tier < tiers.size():
+		diamond = int(tiers[tier].get("first_clear_diamond", 0))
+	var amount: int = int(rewards.get("amount", 0))
+	_status_label.text = "%s·%s 通关：钻石 +%d %s +%d" % [
+		_dungeon_name(kind), _tier_name(tier), diamond,
+		_resource_text(str(rewards.get("kind", ""))), amount]
+
+
 ## ------------------------------------------------------------------
 ## 按钮（只调契约 §3.6 入口）
 ## ------------------------------------------------------------------
@@ -177,7 +209,11 @@ func _on_accelerate_toggled(on: bool) -> void:
 
 func _on_retry_pressed() -> void:
 	_reset_battle_ui()
-	Game.start_battle(_retry_level)
+	# v0.13：秘境失败重试走 start_dungeon（kind/tier 取 dungeon_ctx）；主线走 start_battle
+	if _battle_mode == &"dungeon":
+		Game.start_dungeon(_dungeon_kind, _dungeon_tier)
+	else:
+		Game.start_battle(_retry_level)
 
 
 func _on_back_pressed() -> void:
@@ -303,6 +339,26 @@ func _status_text(status_id: StringName) -> String:
 		&"damage_reduce": return "减伤"
 		&"counter_rate": return "反击"
 	return str(status_id)
+
+
+## v0.13：秘境副本名 / 档位名 / 资源名（Data 静态表 + 本地档位名，纯显示）
+func _dungeon_name(kind: StringName) -> String:
+	return str(Data.DUNGEONS.get(kind, {}).get("name", str(kind)))
+
+
+func _tier_name(tier: int) -> String:
+	if tier >= 0 and tier < _TIER_NAMES.size():
+		return _TIER_NAMES[tier]
+	return str(tier)
+
+
+func _resource_text(kind: String) -> String:
+	match kind:
+		"gold": return "金币"
+		"exp": return "经验"
+		"material": return "材料"
+		"fragment": return "碎片"
+	return kind
 
 
 func _skill_display_name(unit_id: StringName, skill_id: StringName) -> String:

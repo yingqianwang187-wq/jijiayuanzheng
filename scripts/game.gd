@@ -1260,7 +1260,7 @@ func _resolve_dungeon_victory() -> void:
 		mech_exp[mid] = new_exp
 		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
 	Contract.dungeon_reward.emit(kind, tier, rewards)
-	last_clear = { "level": tier + 1, "first_clear": first_clear, "reward": diamond_reward }
+	# last_clear 仅供主线通关显示（主界面"上次通关"），秘境反馈已走 dungeon_reward 信号，不写 last_clear
 	Save.save_game()
 
 ## 失败：发 battle_failed → 停止战斗，可重试
