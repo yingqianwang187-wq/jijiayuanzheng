@@ -14,6 +14,8 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.14（阶段 3 第二批：装备+宝石+强化，设计文档 v0.20）：新增信号 equip_inventory_changed /
+#       equipped_changed / gem_stock_changed；术语新增 equipment / gem / affix / socket / enchant。
 #   v0.13（阶段 3 第一批：体力+秘境+背包+开箱，设计文档 v0.19）：新增信号 stamina_changed /
 #       bag_updated / box_count_changed / dungeon_reward / dungeon_cleared_changed；
 #       术语新增 stamina / dungeon / bag / box / item。
@@ -56,7 +58,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.13"
+const CONTRACT_VERSION := "v0.14"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -115,6 +117,13 @@ const TERM_BAG     := "bag"            # 背包（道具/材料/碎片/装备库
 const TERM_BOX     := "box"            # 开箱（关卡/任务发放的宝箱，直接开）
 const TERM_ITEM    := "item"           # 道具（背包物品：经验药水/体力道具/加速道具/材料）
 
+# ---- 阶段 3 装备术语（设计文档 §2.6 / §10.6，v0.14）----
+const TERM_EQUIPMENT := "equipment"    # 装备（四部位：武器/装甲/护腿/战靴，1~5 星）
+const TERM_GEM       := "gem"          # 宝石（白绿蓝紫金红 6 品；孔随星级；免费拆卸）
+const TERM_AFFIX     := "affix"        # 词条（攻%/血%/防%/速/暴击率/暴伤/闪避）
+const TERM_SOCKET    := "socket"       # 孔（1星1孔/3星2孔/5星3孔）
+const TERM_ENCHANT   := "enchant"      # 强化（+1~+10，金币+材料）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -157,3 +166,8 @@ signal box_count_changed(count: int)                                          # 
 signal box_opened(reward: Dictionary)                                          # 开箱结果（{type:"gold"/"material"/"fragment", amount, mech_id?}；入账走既有信号）
 signal dungeon_reward(kind: StringName, tier: int, rewards: Dictionary)       # 秘境通关奖励（展示用；入账走既有信号）
 signal dungeon_cleared_changed(status: Dictionary)                            # 秘境通关记录变化（解锁/扫荡可用状态）
+
+# ---- 阶段 3 装备信号（v0.14：装备 / 宝石）----
+signal equip_inventory_changed(inventory: Array)                              # 装备库变化（掉落/合成/强化后）
+signal equipped_changed(equipped: Dictionary)                                 # 穿戴变化（穿/卸后；属性变化随 mech_girl_updated）
+signal gem_stock_changed(stock: Dictionary)                                   # 宝石库存变化（镶嵌/拆卸/合成后）
