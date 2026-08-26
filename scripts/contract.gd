@@ -14,6 +14,9 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.19（经验系统简化，设计文档 v0.22；用户裁决：自动升级取消、经验全入池）：取消机娘个人经验条，
+#       战斗/挂机/秘境经验统一入全局经验池（exp_balance_updated）；升级手动扣池；自动升级（_try_auto_upgrade）取消；
+#       信号 mech_exp_updated 废弃（保留注释声明供历史参考）；存档 mechs.exp 废弃、旧档个人条经验并入池。
 #   v0.18（阶段 4 第三批：新手引导+指挥官等级+剧情回顾+活动+升级机制调整，设计文档 v0.21）：
 #       新增信号 commander_changed / activity_changed / guide_changed；
 #       升级机制：经验+金币足够时自动升级（_try_auto_upgrade），手动入口保留；
@@ -70,7 +73,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.18"
+const CONTRACT_VERSION := "v0.19"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -177,7 +180,7 @@ signal level_cleared(level: int, first_clear: bool)                      # 关�
 signal battle_failed(level: int)                                         # 战斗失败（我方全灭；UI 显示失败/重试）
 signal level_progress_changed(level: int)                                # 当前关卡变化
 signal idle_rewards_updated(gold: int, exp: int)                         # 待收获金币与经验（挂机累计，含离线；收获后发 0,0）
-signal mech_exp_updated(id: StringName, exp: int, exp_next: int)         # 机娘个人经验条（战斗胜利得经验 / 升级消耗后）
+# signal mech_exp_updated(id: StringName, exp: int, exp_next: int)  # 【已废弃 v0.22】个人经验条取消，经验统一入全局池（exp_balance_updated）
 signal exp_balance_updated(balance: int)                                 # 全局经验余额（挂机收获入账 / 升级补足扣减后）
 signal diamond_changed(value: int)                                        # 钻石变化（首通奖励 / 抽卡消耗后）
 signal fragments_updated(id: StringName, count: int)                      # 某机娘碎片变化（抽到重复机娘转化后）
