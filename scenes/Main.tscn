@@ -65,6 +65,14 @@ layout_mode = 2
 text = "指挥官 Lv.1"
 horizontal_alignment = 2
 
+[node name="settings_button" type="Button" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "设置"
+
+[node name="save_button" type="Button" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "存档"
+
 [node name="page_container" type="Control" parent="shell_box"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -94,11 +102,6 @@ theme_override_constants/separation = 14
 [node name="city_title" type="Label" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
 text = "—— 主城 ——"
-horizontal_alignment = 1
-
-[node name="idle_rewards_label" type="Label" parent="shell_box/page_container/city_page/city_box"]
-layout_mode = 2
-text = "待收获：金币 +0 经验 +0"
 horizontal_alignment = 1
 
 [node name="activity_title" type="Label" parent="shell_box/page_container/city_page/city_box"]
@@ -165,35 +168,6 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "爬塔"
 
-[node name="function_row" type="HBoxContainer" parent="shell_box/page_container/city_page/city_box"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="collect_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "收获"
-
-[node name="box_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "开箱（0）"
-
-[node name="save_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "手动存档"
-
-[node name="settings_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "设置"
-
-[node name="message_label" type="Label" parent="shell_box/page_container/city_page/city_box"]
-layout_mode = 2
-text = ""
-horizontal_alignment = 1
-
 [node name="formation_page" parent="shell_box/page_container" instance=ExtResource("2_fmt")]
 visible = false
 layout_mode = 1
@@ -249,6 +223,25 @@ horizontal_alignment = 1
 layout_mode = 2
 text = "主线不可选关、不可扫荡；通关解锁下一关，首通掉落金币/钻石/小钰碎片"
 horizontal_alignment = 1
+
+[node name="idle_rewards_label" type="Label" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+text = "待收获：金币 +0 经验 +0"
+horizontal_alignment = 1
+
+[node name="story_action_row" type="HBoxContainer" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="collect_button" type="Button" parent="shell_box/page_container/story_page/story_box/story_action_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "收获"
+
+[node name="box_button" type="Button" parent="shell_box/page_container/story_page/story_box/story_action_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "开箱（0）"
 
 [node name="dungeon_page" parent="shell_box/page_container" instance=ExtResource("3_dun")]
 visible = false
@@ -332,6 +325,11 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="message_label" type="Label" parent="shell_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
 
 [node name="nav_bar" type="PanelContainer" parent="shell_box"]
 layout_mode = 2

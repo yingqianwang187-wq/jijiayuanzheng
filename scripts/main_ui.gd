@@ -52,11 +52,6 @@ const PAGE_COLLECTION := 5
 @onready var _mech_page: Control = $shell_box/page_container/mech_page
 @onready var _collection_page: Control = $shell_box/page_container/collection_page
 # 主城页
-@onready var _idle_rewards_label: Label = $shell_box/page_container/city_page/city_box/idle_rewards_label
-@onready var _collect_button: Button = $shell_box/page_container/city_page/city_box/function_row/collect_button
-@onready var _box_button: Button = $shell_box/page_container/city_page/city_box/function_row/box_button
-@onready var _save_button: Button = $shell_box/page_container/city_page/city_box/function_row/save_button
-@onready var _settings_button: Button = $shell_box/page_container/city_page/city_box/function_row/settings_button
 @onready var _novice_button: Button = $shell_box/page_container/city_page/city_box/activity_row/novice_button
 @onready var _task_button: Button = $shell_box/page_container/city_page/city_box/activity_row/task_button
 @onready var _sign_button: Button = $shell_box/page_container/city_page/city_box/activity_row/sign_button
@@ -65,11 +60,18 @@ const PAGE_COLLECTION := 5
 @onready var _shop_button: Button = $shell_box/page_container/city_page/city_box/building_grid/shop_button
 @onready var _craft_button: Button = $shell_box/page_container/city_page/city_box/building_grid/craft_button
 @onready var _tower_button: Button = $shell_box/page_container/city_page/city_box/building_grid/tower_button
-@onready var _message_label: Label = $shell_box/page_container/city_page/city_box/message_label
-# 主线页
+# 右上角常驻（所有页面可点）
+@onready var _settings_button: Button = $shell_box/top_bar/top_row/settings_button
+@onready var _save_button: Button = $shell_box/top_bar/top_row/save_button
+# 主线页（收获/开箱与挑战同页）
+@onready var _idle_rewards_label: Label = $shell_box/page_container/story_page/story_box/idle_rewards_label
+@onready var _collect_button: Button = $shell_box/page_container/story_page/story_box/story_action_row/collect_button
+@onready var _box_button: Button = $shell_box/page_container/story_page/story_box/story_action_row/box_button
 @onready var _challenge_button: Button = $shell_box/page_container/story_page/story_box/challenge_button
 @onready var _story_progress_label: Label = $shell_box/page_container/story_page/story_box/story_progress_label
 @onready var _story_last_clear_label: Label = $shell_box/page_container/story_page/story_box/story_last_clear_label
+# 全局消息（壳层，所有页面可见）
+@onready var _message_label: Label = $shell_box/message_label
 # 机娘页
 @onready var _mech_count_label: Label = $shell_box/page_container/mech_page/mech_box_panel/mech_count_label
 @onready var _filter_all_button: Button = $shell_box/page_container/mech_page/mech_box_panel/filter_row/filter_all_button
@@ -580,7 +582,8 @@ func _refresh_guide() -> void:
 func _guide_target(step: int) -> Dictionary:
 	match step:
 		0:
-			return { "page": PAGE_CITY, "control": _collect_button }
+			# 收获按钮在主线页（#31 调整）
+			return { "page": PAGE_STORY, "control": _collect_button }
 		1:
 			if _mech_cards.is_empty():
 				return { "page": PAGE_MECH, "control": _mech_box }
