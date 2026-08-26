@@ -14,6 +14,10 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.20（阶段 5 第一批：限定池+皮肤+每日BOSS+本地排行榜，设计文档 v0.23）：
+#       新增信号 skin_changed / daily_boss_changed；
+#       术语新增 limited / skin / daily_boss / rank；
+#       服务端依赖项（竞技场/账号/云同步等）单机暂不做。
 #   v0.19（经验系统简化，设计文档 v0.22；用户裁决：自动升级取消、经验全入池）：取消机娘个人经验条，
 #       战斗/挂机/秘境经验统一入全局经验池（exp_balance_updated）；升级手动扣池；自动升级（_try_auto_upgrade）取消；
 #       信号 mech_exp_updated 废弃（保留注释声明供历史参考）；存档 mechs.exp 废弃、旧档个人条经验并入池。
@@ -73,7 +77,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.19"
+const CONTRACT_VERSION := "v0.20"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -160,6 +164,12 @@ const TERM_GUIDE      := "guide"        # 新手引导（6 步核心循环，可
 const TERM_COMMANDER  := "commander"    # 指挥官（经验/等级；每 5 级送免费十连）
 const TERM_ACTIVITY   := "activity"     # 活动（本地限时任务，达成领奖一次性）
 
+# ---- 阶段 5 术语（设计文档 §4.2 / §10.6 / §10.7 / §10.8，v0.20）----
+const TERM_LIMITED    := "limited"      # 限定池（限时卡池，SSR UP 轮换，独立保底）
+const TERM_SKIN       := "skin"         # 皮肤（纯外观换装，占位，无属性）
+const TERM_DAILY_BOSS := "daily_boss"   # 每日BOSS（每日 1 次、伤害结算、本地伤害榜）
+const TERM_RANK       := "rank"         # 本地排行榜（战力/爬塔/BOSS/进度）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -228,3 +238,7 @@ signal affinity_changed(id: StringName, value: int)                           # 
 signal commander_changed(level: int, exp: int)                                # 指挥官等级/经验变化
 signal activity_changed(activities: Array)                                    # 活动列表变化（达成/领奖后）
 signal guide_changed(step: int)                                               # 新手引导步数变化（推进/跳过/完成）
+
+# ---- 阶段 5 信号（v0.20：皮肤 / 每日BOSS）----
+signal skin_changed(unlocked: Array, equipped: Dictionary)                    # 皮肤变化（解锁/穿戴后）
+signal daily_boss_changed(damage: int, day: String)                           # 每日BOSS 变化（挑战后最高伤害/当日）
