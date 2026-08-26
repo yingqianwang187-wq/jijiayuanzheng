@@ -5,7 +5,7 @@
 #          scripts/contract.gd（只读，v0.17 新信号）、scripts/game.gd（B 实际返回字段）
 # 职责   ：机娘详情纯显示层（大立绘占位 / 属性 / 技能 / 装备 / 好感 / 羁绊）+ 养成入口。
 #          - 当前机娘 id 由 main_ui.pending_mech_id 传入（UI 导航状态；空则取第一只已拥有）
-#          - 连接信号：mech_girl_updated / mech_exp_updated / mech_star_updated /
+#          - 连接信号：mech_girl_updated / exp_balance_updated / mech_star_updated /
 #            affinity_changed / equipped_changed / gold_changed / fragments_updated
 #          - 按钮只调入口（契约 §3.6）：升级 → Game.upgrade(id)；升星 → Game.upgrade_star(id)；
 #            送礼 → Game.give_gift(id)；装备界面 → 切 Equipment.tscn；返回 → 切 Main.tscn
@@ -38,7 +38,6 @@ const MainUI := preload("res://scripts/main_ui.gd")
 @onready var _bond_label: Label = $root_box/scroll/content_box/bond_label
 @onready var _upgrade_button: Button = $root_box/scroll/content_box/upgrade_row/upgrade_button
 @onready var _star_button: Button = $root_box/scroll/content_box/upgrade_row/star_button
-@onready var _exp_label: Label = $root_box/scroll/content_box/exp_label
 @onready var _message_label: Label = $root_box/scroll/content_box/message_label
 
 ## ---- UI 内部状态（仅当前机娘 id，不含任何游戏数值）----
@@ -57,7 +56,7 @@ func _ready() -> void:
 		_gift_button.disabled = true
 		return
 	Contract.mech_girl_updated.connect(_on_mech_girl_updated)
-	Contract.mech_exp_updated.connect(_on_mech_exp_updated)
+	Contract.exp_balance_updated.connect(_on_exp_balance_updated)
 	Contract.mech_star_updated.connect(_on_mech_star_updated)
 	Contract.affinity_changed.connect(_on_affinity_changed)
 	Contract.equipped_changed.connect(_on_equipped_changed)
@@ -98,9 +97,8 @@ func _on_mech_girl_updated(id: StringName, _hp: int, _atk: int, _level: int) -> 
 	_refresh_upgrade_buttons()
 
 
-func _on_mech_exp_updated(id: StringName, _exp: int, _exp_next: int) -> void:
-	if id != _mech_id:
-		return
+func _on_exp_balance_updated(_balance: int) -> void:
+	# v0.19：全局经验池变化 → 刷新升级按钮（经验统一扣池）
 	_refresh_upgrade_buttons()
 
 
@@ -362,7 +360,7 @@ func _refresh_affinity() -> void:
 ## 按钮（只调契约 §3.6 入口）
 ## ------------------------------------------------------------------
 func _on_upgrade_pressed() -> void:
-	# 结果由 gold_changed / mech_girl_updated / mech_exp_updated / exp_balance_updated 回发
+	# 结果由 gold_changed / mech_girl_updated / exp_balance_updated 回发
 	Game.upgrade(_mech_id)
 
 
@@ -385,8 +383,8 @@ func _on_back_pressed() -> void:
 
 
 ## ------------------------------------------------------------------
-## 升级/升星按钮状态（迁移自 main_ui v0.5/v0.6/v0.10 逻辑）：
-## 升级用只读 Game.upgrade_cost / upgrade_exp_cost 判断（经验 = 个人条 + 全局余额）；
+## 升级/升星按钮状态（v0.19 经验简化）：升级用只读 Game.upgrade_cost / upgrade_exp_cost
+## 判断，经验统一扣**全局经验池（Game.exp_balance）**（个人经验条已取消）；
 ## 升星用 Game.star_cost 判断（碎片/解锁等级）；不足置灰并提示原因
 ## ------------------------------------------------------------------
 func _refresh_upgrade_buttons() -> void:
@@ -400,15 +398,12 @@ func _refresh_upgrade_buttons() -> void:
 	if level >= cap:
 		_upgrade_button.text = "已满级"
 		_upgrade_button.disabled = true
-		_exp_label.text = "经验 %d（已满级）" % int(Game.mech_exp.get(_mech_id, 0))
 	else:
 		var gold_cost: int = Game.upgrade_cost(_mech_id)
 		var exp_cost: int = Game.upgrade_exp_cost(_mech_id)
-		var exp_now: int = int(Game.mech_exp.get(_mech_id, 0)) + int(Game.exp_balance)
 		var lack_gold: bool = gold_now < gold_cost
-		var lack_exp: bool = exp_now < exp_cost
+		var lack_exp: bool = int(Game.exp_balance) < exp_cost
 		_upgrade_button.disabled = lack_gold or lack_exp
-		_exp_label.text = "经验 %d/%d（余额 %d）" % [int(Game.mech_exp.get(_mech_id, 0)), exp_cost, int(Game.exp_balance)]
 		if lack_gold and lack_exp:
 			reason = "金币和经验都不足，无法升级"
 		elif lack_gold:

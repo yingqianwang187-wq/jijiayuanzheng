@@ -19,7 +19,6 @@ extends Node
 var gold: int = 0
 var unlocked_level: int = 1                     # 已解锁的最高关卡（初始 = 第 1 关）
 var mech_levels: Dictionary = {}                # { StringName id: int level }
-var mech_exp: Dictionary = {}                   # { StringName id: int exp } 机娘经验（胜利获得，升级消耗）
 var mech_stars: Dictionary = {}                 # { StringName id: int star } 机娘星级（1~10，v0.10）
 var cleared_levels: Dictionary = {}             # { int level: true } 已首通关卡（内存态）
 
@@ -159,13 +158,11 @@ func _load_initial_state() -> void:
 		var mid := StringName(str(key))
 		if Data.MECH_GIRLS.has(mid):
 			owned_mechs[mid] = true
-	# 成长状态只建"已拥有"机娘（未拥有无等级/经验/星级；抽到新机娘时再初始化）
+	# 成长状态只建"已拥有"机娘（未拥有无等级/星级；抽到新机娘时再初始化）
 	mech_levels.clear()
-	mech_exp.clear()
 	mech_stars.clear()
 	for mech_id in _owned_mech_ids():
 		mech_levels[mech_id] = 1
-		mech_exp[mech_id] = 0
 		mech_stars[mech_id] = 1
 	var mechs: Dictionary = data.get("mechs", {})
 	for key in mechs:
@@ -173,7 +170,6 @@ func _load_initial_state() -> void:
 		if Data.MECH_GIRLS.has(mech_id) and owned_mechs.has(mech_id):
 			var entry: Dictionary = mechs[key]
 			mech_levels[mech_id] = maxi(int(entry.get("level", 1)), 1)
-			mech_exp[mech_id] = maxi(int(entry.get("exp", 0)), 0)
 			# 星级（v0.10）：旧档无此字段 → 默认 1
 			mech_stars[mech_id] = clampi(int(entry.get("star", 1)), 1, Data.MAX_STAR)
 	# 首通记录恢复：直接读存档 first_cleared（契约 §3.2）
@@ -413,7 +409,7 @@ func _setup_timers() -> void:
 	battle_timer.timeout.connect(_on_battle_tick)
 	add_child(battle_timer)
 
-## 发初始状态信号（gold_changed / diamond_changed / mech_girl_updated / mech_exp_updated /
+## 发初始状态信号（gold_changed / diamond_changed / mech_girl_updated /
 ## exp_balance_updated / level_progress_changed / idle_rewards_updated / owned_mechs_updated）
 func _emit_initial_state() -> void:
 	Contract.gold_changed.emit(gold)
@@ -421,7 +417,6 @@ func _emit_initial_state() -> void:
 	for mech_id in _owned_mech_ids():
 		var s := _mech_stats(mech_id)
 		Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
-		Contract.mech_exp_updated.emit(mech_id, int(mech_exp.get(mech_id, 0)), _upgrade_exp_cost(mech_id, int(mech_levels.get(mech_id, 1))))
 		Contract.mech_star_updated.emit(mech_id, int(mech_stars.get(mech_id, 1)), get_level_cap(mech_id))
 	Contract.exp_balance_updated.emit(exp_balance)
 	Contract.level_progress_changed.emit(unlocked_level)
@@ -564,68 +559,34 @@ func _upgrade_exp_cost(mech_id: StringName, current_level: int) -> int:
 ## ---------------------------------------------------------------
 ## 升级机娘（契约 §3.6 入口）：扣金币 + 经验 → 升等级 → 提攻血 → 发信号
 ## 签名：upgrade(mech_id: StringName)
-## 规则（v0.6 双路经验）：经验先扣个人经验条（mech_exp[id]），不足部分自动从
-## 全局经验余额（exp_balance）补；两者合计都不足则失败（不扣金币、不发任何信号）。
-## 金币不足同样失败。
+## 规则（v0.19 经验简化）：经验直接从全局经验池（exp_balance）扣；池不足 / 金币不足 / 满级
+## 失败不发信号（手动唯一升级方式）。
 ## ---------------------------------------------------------------
 func upgrade(mech_id: StringName) -> void:
-	_do_upgrade_once(mech_id)
-	Save.save_game()
-
-## 单次升级（v0.18 抽取：手动 upgrade 与自动升级 _try_auto_upgrade 共用）
-## 返回是否升级成功（资源不足 / 满级 / 非法 → false）
-func _do_upgrade_once(mech_id: StringName) -> bool:
 	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
-		return false
+		return
 	var current_level: int = int(mech_levels.get(mech_id, 1))
 	# 等级上限（v0.10）：满级不可再升
 	if current_level >= get_level_cap(mech_id):
-		return false
-	var current_exp: int = int(mech_exp.get(mech_id, 0))
+		return
 	var gold_cost: int = _upgrade_cost(mech_id, current_level)
 	var exp_cost: int = _upgrade_exp_cost(mech_id, current_level)
-	# 经验判定：个人条 + 余额合计是否够
-	var total_exp: int = current_exp + exp_balance
-	if gold < gold_cost or total_exp < exp_cost:
-		return false
-	# 扣经验：先个人条，不足从余额补
-	var exp_from_personal: int = mini(current_exp, exp_cost)
-	var exp_from_balance: int = exp_cost - exp_from_personal
-	mech_exp[mech_id] = current_exp - exp_from_personal
-	if exp_from_balance > 0:
-		exp_balance -= exp_from_balance
-	# 扣金币
+	# 金币 / 经验池不足 → 失败不发信号
+	if gold < gold_cost or exp_balance < exp_cost:
+		return
 	gold -= gold_cost
+	exp_balance -= exp_cost
 	mech_levels[mech_id] = current_level + 1
 	Contract.gold_changed.emit(gold)
+	Contract.exp_balance_updated.emit(exp_balance)
 	var s := _mech_stats(mech_id)
 	Contract.mech_girl_updated.emit(mech_id, s.hp, s.atk, s.level)
-	Contract.mech_exp_updated.emit(mech_id, int(mech_exp[mech_id]), _upgrade_exp_cost(mech_id, current_level + 1))
-	# 若动用了余额，通知余额变化（契约 §3.5 v0.6）
-	if exp_from_balance > 0:
-		Contract.exp_balance_updated.emit(exp_balance)
 	# 任务钩子（v0.16）：升级
 	_bump_task("daily", &"upgrade_mech")
 	_bump_task("weekly", &"upgrade_total")
 	_bump_novice(&"upgrade_count")
 	_refresh_novice_power()
-	return true
-
-## 自动升级（v0.18）：循环升级该机娘直到资源不足 / 满级（战斗胜利 / 挂机收获后触发）
-func _try_auto_upgrade(mech_id: StringName) -> void:
-	while _do_upgrade_once(mech_id):
-		pass
-
-## 自动升级全部拥有机娘（胜利结算 / 收获后调用；统一存档一次）
-func _auto_upgrade_all() -> void:
-	var upgraded := false
-	for mech_id in _owned_mech_ids():
-		var before: int = int(mech_levels.get(mech_id, 1))
-		_try_auto_upgrade(mech_id)
-		if int(mech_levels.get(mech_id, 1)) != before:
-			upgraded = true
-	if upgraded:
-		Save.save_game()
+	Save.save_game()
 
 ## ---------------------------------------------------------------
 ## 进入关卡，开始自动节拍战斗（契约 §3.6 / §3.9 入口，v0.8 战斗 2.0；v0.9 主线规则）
@@ -1445,15 +1406,9 @@ func _resolve_victory() -> void:
 		level_stars[level] = star
 	# 章节星数宝箱（第 1 章 5 关 × 3 星，集满 90%）
 	_check_chapter_chest()
-	# 胜利经验：全体上阵机娘（含本局阵亡者）进个人条；满级经验不累计（v0.10）
-	var exp_gain: int = int(Data.LEVELS[level].victory_reward_exp)
-	for mech_id in battle.mech_ids:
-		var mid := StringName(mech_id)
-		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
-			continue
-		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
-		mech_exp[mid] = new_exp
-		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	# 胜利经验：进入全局经验池（v0.19 经验简化，不再分个人条）
+	exp_balance += int(Data.LEVELS[level].victory_reward_exp)
+	Contract.exp_balance_updated.emit(exp_balance)
 	# 记录本局通关信息（内存态，不入档）
 	last_clear = { "level": level, "first_clear": first_clear, "reward": reward }
 	# 任务钩子（v0.16）：推主线
@@ -1464,8 +1419,7 @@ func _resolve_victory() -> void:
 	_gain_battle_affinity()
 	_check_achievements()
 	_check_titles()
-	# v0.18：自动升级（胜利后资源够自动升）+ 指挥官经验（推关）
-	_auto_upgrade_all()
+	# v0.18：指挥官经验（推关）
 	_gain_commander_exp(Data.COMMANDER_EXP_STORY)
 	Contract.battle_star.emit(star)
 	Contract.level_cleared.emit(level, first_clear)
@@ -1529,19 +1483,12 @@ func _resolve_dungeon_victory() -> void:
 		Contract.dungeon_cleared_changed.emit(get_dungeon_status())
 	# 该档掉落资源（exp 分支用本局上阵名单）
 	var rewards := _grant_dungeon_reward(kind, tier, battle.mech_ids)
-	# 秘境胜利经验（可重复玩法胜利给经验，v0.15）：10 + tier×10（推荐值）
-	var exp_gain: int = 10 + tier * 10
-	for mech_id in battle.mech_ids:
-		var mid := StringName(mech_id)
-		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
-			continue
-		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
-		mech_exp[mid] = new_exp
-		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	# 秘境胜利经验：进入全局经验池（v0.19；可重复玩法胜利给经验）
+	exp_balance += 10 + tier * 10
+	Contract.exp_balance_updated.emit(exp_balance)
 	Contract.dungeon_reward.emit(kind, tier, rewards)
 	# last_clear 仅供主线通关显示（主界面"上次通关"），秘境反馈已走 dungeon_reward 信号，不写 last_clear
 	_gain_battle_affinity()  # v0.17：出战胜利好感 +1
-	_auto_upgrade_all()  # v0.18：秘境胜利后资源够自动升级
 	Save.save_game()
 
 ## 失败：发 battle_failed → 停止战斗，可重试
@@ -1595,7 +1542,6 @@ func collect_idle() -> void:
 	idle_last_time = int(Time.get_unix_time_from_system())
 	Contract.idle_rewards_updated.emit(0, 0)
 	_bump_task("daily", &"collect_idle")  # 任务钩子（v0.16）：收获
-	_auto_upgrade_all()  # v0.18：收获后资源够自动升级
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -1758,7 +1704,6 @@ func _apply_summon_result(mech_id: StringName) -> Dictionary:
 	else:
 		owned_mechs[mech_id] = true
 		mech_levels[mech_id] = 1
-		mech_exp[mech_id] = 0
 		mech_stars[mech_id] = 1
 		entry["is_new"] = true
 		# v0.17：新机娘入图鉴（collection_changed）+ 成就/称号自动检查
@@ -1929,20 +1874,9 @@ func sweep_level(level: int) -> void:
 		Contract.battle_prompt.emit(&"skill", "主线不可扫荡")
 		return
 	var exp_gain: int = int(Data.LEVELS[level].victory_reward_exp)
-	# 扫荡给"上阵机娘"（当前阵型；空则拥有前 5）经验
-	var sweep_ids: Array = []
-	for slot in formation:
-		if not sweep_ids.has(StringName(str(slot.id))):
-			sweep_ids.append(StringName(str(slot.id)))
-	if sweep_ids.is_empty():
-		sweep_ids = _owned_mech_ids()
-	for mech_id in sweep_ids:
-		var mid := StringName(mech_id)
-		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
-			continue
-		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_gain
-		mech_exp[mid] = new_exp
-		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	# 扫荡经验：进入全局经验池（v0.19）
+	exp_balance += exp_gain
+	Contract.exp_balance_updated.emit(exp_balance)
 	var star: int = int(level_stars.get(level, 1))
 	Contract.battle_star.emit(star)
 	Contract.battle_prompt.emit(&"skill", "扫荡完成")
@@ -2456,13 +2390,9 @@ func _grant_dungeon_reward(kind: StringName, tier: int, exp_ids: Array) -> Dicti
 			gold += amount
 			Contract.gold_changed.emit(gold)
 		"exp":
-			for mech_id in exp_ids:
-				var mid := StringName(mech_id)
-				if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
-					continue
-				var new_exp: int = int(mech_exp.get(mid, 0)) + amount
-				mech_exp[mid] = new_exp
-				Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+			# 经验副本掉落：进入全局经验池（v0.19）
+			exp_balance += amount
+			Contract.exp_balance_updated.emit(exp_balance)
 		"material":
 			bag["items"]["material"] = int(bag["items"].get("material", 0)) + amount
 			Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
@@ -2750,17 +2680,11 @@ func _resolve_tower_victory() -> void:
 	var layer: int = int(battle.dungeon_ctx.layer)
 	tower_highest = maxi(tower_highest, layer)
 	tower_daily_count += 1
-	# 普通层奖励：金币 + 经验（个人条）
+	# 普通层奖励：金币 + 经验（进全局池，v0.19）
 	gold += Data.TOWER_NORMAL_GOLD_BASE + layer * Data.TOWER_NORMAL_GOLD_PER_LEVEL
 	Contract.gold_changed.emit(gold)
-	var exp_reward: int = Data.TOWER_NORMAL_EXP_BASE + layer
-	for mech_id in battle.mech_ids:
-		var mid := StringName(mech_id)
-		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
-			continue
-		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_reward
-		mech_exp[mid] = new_exp
-		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	exp_balance += Data.TOWER_NORMAL_EXP_BASE + layer
+	Contract.exp_balance_updated.emit(exp_balance)
 	# 每 10 层大奖（钻石/召唤券/宝石）
 	if layer % 10 == 0:
 		var ten: int = int(layer / 10)
@@ -2779,8 +2703,6 @@ func _resolve_tower_victory() -> void:
 	_gain_battle_affinity()
 	_check_achievements()
 	_check_titles()
-	# v0.18：自动升级（爬塔胜利后资源够自动升）
-	_auto_upgrade_all()
 	Contract.tower_changed.emit(tower_highest, tower_daily_count)
 	Save.save_game()
 
@@ -3239,7 +3161,6 @@ func get_save_snapshot() -> Dictionary:
 	for mech_id in _owned_mech_ids():
 		mechs[mech_id] = {
 			"level": int(mech_levels.get(mech_id, 1)),
-			"exp": int(mech_exp.get(mech_id, 0)),
 			"star": int(mech_stars.get(mech_id, 1)),
 		}
 	var first_cleared: Array = []

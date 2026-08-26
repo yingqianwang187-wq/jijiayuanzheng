@@ -204,10 +204,9 @@ func save_game() -> void:
 	var mechs: Dictionary = snapshot.get("mechs", {})
 	for key in mechs:
 		var entry: Dictionary = mechs[key]
-		# 写盘统一用字符串键，避免 StringName 键在 JSON 序列化时的差异
+		# 写盘统一用字符串键，避免 StringName 键在 JSON 序列化时的差异（v0.19 起不含 exp）
 		save_dict["mechs"][str(key)] = {
 			"level": maxi(int(entry.get("level", 1)), 1),
-			"exp": maxi(int(entry.get("exp", 0)), 0),
 			"star": clampi(int(entry.get("star", 1)), 1, Data.MAX_STAR),
 		}
 	var first_cleared: Variant = snapshot.get("first_cleared", [])
@@ -297,9 +296,12 @@ func load_game() -> Dictionary:
 			var entry: Variant = mechs[key]
 			var mech_id := StringName(str(key))
 			if entry is Dictionary and Data.MECH_GIRLS.has(mech_id):
+				# 旧档迁移（v0.19）：个人条经验并入全局经验池（一次性，不丢进度）
+				var old_exp := maxi(int(entry.get("exp", 0)), 0)
+				if old_exp > 0:
+					result["exp_balance"] = int(result["exp_balance"]) + old_exp
 				result["mechs"][mech_id] = {
 					"level": maxi(int(entry.get("level", 1)), 1),
-					"exp": maxi(int(entry.get("exp", 0)), 0),
 					# 星级（v0.10）：旧档无此字段 → 默认 1，补齐不丢
 					"star": clampi(int(entry.get("star", 1)), 1, Data.MAX_STAR),
 				}
@@ -572,7 +574,7 @@ func clear_save() -> void:
 func _default_data() -> Dictionary:
 	var mechs := {}
 	for mech_id in Data.START_MECHS:
-		mechs[mech_id] = { "level": 1, "exp": 0, "star": 1 }
+		mechs[mech_id] = { "level": 1, "star": 1 }
 	var owned := {}
 	for mech_id in Data.START_MECHS:
 		owned[mech_id] = true
