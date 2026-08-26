@@ -14,6 +14,9 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.16（阶段 4 第一批：爬塔+签到+每日/周任务+新手7日，设计文档 v0.20）：新增信号
+#       tower_changed / sign_changed / task_changed / novice_changed；
+#       术语新增 tower / sign / task / novice。
 #   v0.15（阶段 3 第三批：商城+设置，设计文档 v0.20）：新增信号 settings_changed /
 #       shop_changed；术语新增 shop / setting。
 #   v0.14（阶段 3 第二批：装备+宝石+强化，设计文档 v0.20）：新增信号 equip_inventory_changed /
@@ -60,7 +63,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.15"
+const CONTRACT_VERSION := "v0.16"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -130,6 +133,12 @@ const TERM_ENCHANT   := "enchant"      # 强化（+1~+10，金币+材料）
 const TERM_SHOP     := "shop"          # 商城（每日商品，0 点刷新限购）
 const TERM_SETTING  := "setting"       # 设置（音效/音乐/2x/语言/存档导出重置）
 
+# ---- 阶段 4 术语（设计文档 §10.2 / §10.3 / §10.14，v0.16）----
+const TERM_TOWER   := "tower"          # 爬塔（无尽层；每日 30 层上限；每 10 层大奖）
+const TERM_SIGN    := "sign"           # 签到（每日金币+钻石；累计 7 天额外奖）
+const TERM_TASK    := "task"           # 任务（每日 8 任务 100 活跃度 + 每周 300 活跃度，档位领奖）
+const TERM_NOVICE  := "novice"         # 新手福利（7 日任务链，每天 3~4 目标）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -181,3 +190,9 @@ signal gem_stock_changed(stock: Dictionary)                                   # 
 # ---- 阶段 3 商城/设置信号（v0.15）----
 signal settings_changed(settings: Dictionary)                                 # 设置变化（设置界面修改后）
 signal shop_changed(items: Array, bought: Dictionary)                         # 商城状态变化（每日刷新/购买后）
+
+# ---- 阶段 4 信号（v0.16：爬塔 / 签到 / 任务 / 新手福利）----
+signal tower_changed(level: int, daily_count: int)                            # 爬塔变化（通关推进/每日层数）
+signal sign_changed(days: int)                                                # 签到变化（连续天数）
+signal task_changed(daily: Dictionary, weekly: Dictionary)                    # 任务进度变化（日/周 {progress, claimed}）
+signal novice_changed(day: int, progress: Dictionary, claimed: Array)         # 新手 7 日任务变化
