@@ -182,6 +182,15 @@ func _on_level_cleared(_level: int, _first_clear: bool) -> void:
 
 func _on_battle_failed(level: int) -> void:
 	_retry_level = level
+	# v0.15 补丁：秘境失败返还体力后，若体力仍不足以重试（start_dungeon 校验静默返回），
+	# 隐藏重试按钮并提示；体力足够才显示（复用 _dungeon_kind / _dungeon_tier）
+	if _battle_mode == &"dungeon":
+		var need: int = int(Game.dungeon_cost(_dungeon_kind, _dungeon_tier).get("stamina", 0))
+		if Game.get_stamina() < need:
+			_status_label.text = "体力不足，无法重试"
+			_retry_button.visible = false
+			_show_battle_stats()
+			return
 	_status_label.text = "战斗失败！点击重试"
 	_retry_button.visible = true
 	_show_battle_stats()

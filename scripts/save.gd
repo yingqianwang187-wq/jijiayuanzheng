@@ -376,7 +376,11 @@ func load_game() -> Dictionary:
 		for key in Data.SETTINGS_KEYS:
 			var key_str: String = str(key)
 			if settings_src.has(key_str):
-				result["settings"][key_str] = settings_src[key_str]
+				# 音量字段钳到 0..1，其余字段按存档值（缺失键已由默认值打底）
+				if key_str == "music_volume" or key_str == "sfx_volume":
+					result["settings"][key_str] = clampf(float(settings_src[key_str]), 0.0, 1.0)
+				else:
+					result["settings"][key_str] = settings_src[key_str]
 	var shop_day: Variant = parsed_dict.get("shop_day", "")
 	result["shop_day"] = str(shop_day)
 	var shop_bought_src: Variant = parsed_dict.get("shop_bought", {})
