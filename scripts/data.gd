@@ -12,12 +12,26 @@
 extends Node
 
 # ------------------------------------------------------------------
-# 关卡规模与章节结构（设计文档 §1.3 / §8.1，v0.14）
-#   第 1 章维持 5 关（第 5 关 = 章节 BOSS 关）；第 2 章起每章 10 关（v0.14，阶段 4+ 扩展）
+# 关卡规模与章节结构（设计文档 §1.3 / §8.1，v0.23 扩展）
+#   第 1 章维持 5 关（第 5 关 = 章节 BOSS 关）；第 2~5 章各 10 关（第 10 关 = 章节 BOSS），
+#   共 45 关；解锁下一章需通关上一章 BOSS；主线跨章连续推进（不可选关）
 # ------------------------------------------------------------------
-const MAX_LEVEL := 5
+const MAX_LEVEL := 45
 const CHAPTERS := {
-	1: { "name": "第 1 章", "levels": 5, "boss_level": 5 },
+	1: { "name": "第 1 章", "theme": "旧城区", "levels": 5, "boss_level": 5 },
+	2: { "name": "第 2 章", "theme": "工业区", "levels": 10, "boss_level": 15 },
+	3: { "name": "第 3 章", "theme": "商业区", "levels": 10, "boss_level": 25 },
+	4: { "name": "第 4 章", "theme": "地下区", "levels": 10, "boss_level": 35 },
+	5: { "name": "第 5 章", "theme": "主城区", "levels": 10, "boss_level": 45 },
+}
+
+## 章节 BOSS 首通大额奖励（设计文档 §1.3，v0.23：金币/钻石 + 小钰碎片 3 + 宝石/装备；
+## 键 = 章号；数值为推荐值可调）
+const BOSS_FIRST_CLEAR_REWARD := {
+	2: { "gold": 4000, "diamond": 400, "gem": &"white", "gem_amount": 2, "equip_star": 1, "equip_amount": 1 },
+	3: { "gold": 5000, "diamond": 500, "gem": &"green", "gem_amount": 1, "equip_star": 2, "equip_amount": 1 },
+	4: { "gold": 6000, "diamond": 600, "gem": &"blue", "gem_amount": 1, "equip_star": 3, "equip_amount": 1 },
+	5: { "gold": 7000, "diamond": 700, "gem": &"purple", "gem_amount": 1, "equip_star": 3, "equip_amount": 2 },
 }
 
 # ------------------------------------------------------------------
@@ -553,7 +567,8 @@ const ACTIVITIES := {
 }
 
 # ------------------------------------------------------------------
-# 第 1 章剧情台词（设计文档 §1.3，v0.14 补全；随首通解锁，图鉴内可回看）
+# 第 1~5 章剧情台词（设计文档 §1.3，v0.14 第 1 章 + v0.25 第 2~5 章补写；
+#   随首通解锁，图鉴内可回看；第 2~5 章 = 章首台词挂该章第 1 关 opening、章末挂 BOSS 关 clear）
 # ------------------------------------------------------------------
 const STORY_LINES := {
 	1: { "opening": "小钰：都市已经乱成一锅粥了，指挥官。先别管那么多——开打！", "clear": "热身完毕！" },
@@ -561,6 +576,14 @@ const STORY_LINES := {
 	3: { "opening": "小钰：前面有巡逻的机械兵，阿岚，掩护我！", "clear": "看到没，这就是默契！" },
 	4: { "opening": "阿岚：敌人变多了。指挥官，要不要换个打法？", "clear": "啧，有点意思了。" },
 	5: { "opening": "小钰：街区里的机械头目就在前面……打完它，这片街区就归我们了！", "clear": "第一片街区拿回来了。接下来，去下一个街区！" },
+	6: { "opening": "小钰：工业区里有工厂在冒黑烟，那帮机械兵在里面造新家伙……端掉它！", "clear": "" },
+	15: { "opening": "", "clear": "工厂炸了！机械兵没地方补给，下一站——商业区。" },
+	16: { "opening": "阿岚：商场里全是失控的巡逻机……小钰，这次别乱冲，会踩到陷阱。", "clear": "" },
+	25: { "opening": "", "clear": "啧，蜂群头目解决了。商业区清了，还有地下。" },
+	26: { "opening": "小钰：地下能源核心被暴走引擎占了，把电抢回来，整座城都能喘口气！", "clear": "" },
+	35: { "opening": "", "clear": "熔核拆了！城市恢复供电……最后是中央塔。" },
+	36: { "opening": "小钰：中枢 AI 就在中央塔顶。指挥官——打下它，家园就真的回来了！", "clear": "" },
+	45: { "opening": "", "clear": "中央塔……夺回来了。指挥官，我们做到了！" },
 }
 
 # ------------------------------------------------------------------
@@ -1187,5 +1210,584 @@ const LEVELS := {
 		"first_clear_reward": 480,
 		"first_clear_reward_diamond": 80,
 		"victory_reward_exp": 25,
+	},
+	6 : {
+		"waves": [
+			[
+				{ "id": &"e6_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 23, "hp": 192, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e6_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 23, "hp": 192, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e6_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 25, "hp": 166, "def": 3, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e6_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 21, "hp": 208, "def": 7, "spd": 3, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 550,
+		"first_clear_reward_diamond": 90,
+		"victory_reward_exp": 28,
+	},
+	7 : {
+		"waves": [
+			[
+				{ "id": &"e7_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 28, "hp": 234, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e7_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 28, "hp": 234, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e7_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 30, "hp": 203, "def": 3, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e7_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 25, "hp": 254, "def": 7, "spd": 3, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 700,
+		"first_clear_reward_diamond": 95,
+		"victory_reward_exp": 31,
+	},
+	8 : {
+		"waves": [
+			[
+				{ "id": &"e8_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 34, "hp": 286, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e8_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 34, "hp": 286, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e8_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 37, "hp": 248, "def": 3, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e8_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 31, "hp": 309, "def": 7, "spd": 3, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 850,
+		"first_clear_reward_diamond": 100,
+		"victory_reward_exp": 34,
+	},
+	9 : {
+		"waves": [
+			[
+				{ "id": &"e9_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 41, "hp": 349, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e9_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 41, "hp": 349, "def": 4, "spd": 4, "skills": [&"enemy_shot"] },
+				{ "id": &"e9_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 45, "hp": 302, "def": 3, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e9_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 38, "hp": 378, "def": 7, "spd": 3, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 1000,
+		"first_clear_reward_diamond": 105,
+		"victory_reward_exp": 37,
+	},
+	10 : {
+		"waves": [
+			[
+				{ "id": &"e10_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 50, "hp": 425, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e10_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 50, "hp": 425, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e10_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 55, "hp": 369, "def": 4, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e10_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 46, "hp": 461, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 1150,
+		"first_clear_reward_diamond": 110,
+		"victory_reward_exp": 40,
+	},
+	11 : {
+		"waves": [
+			[
+				{ "id": &"e11_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 62, "hp": 519, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e11_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 62, "hp": 519, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e11_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 67, "hp": 450, "def": 4, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e11_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 57, "hp": 562, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 1300,
+		"first_clear_reward_diamond": 115,
+		"victory_reward_exp": 43,
+	},
+	12 : {
+		"waves": [
+			[
+				{ "id": &"e12_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 75, "hp": 633, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e12_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 75, "hp": 633, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e12_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 81, "hp": 549, "def": 4, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e12_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 69, "hp": 686, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 1450,
+		"first_clear_reward_diamond": 120,
+		"victory_reward_exp": 46,
+	},
+	13 : {
+		"waves": [
+			[
+				{ "id": &"e13_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 92, "hp": 772, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e13_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 92, "hp": 772, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e13_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 99, "hp": 669, "def": 4, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e13_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 84, "hp": 837, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 1600,
+		"first_clear_reward_diamond": 125,
+		"victory_reward_exp": 49,
+	},
+	14 : {
+		"waves": [
+			[
+				{ "id": &"e14_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 112, "hp": 942, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e14_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 112, "hp": 942, "def": 5, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e14_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 121, "hp": 816, "def": 4, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e14_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 102, "hp": 1020, "def": 8, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 1750,
+		"first_clear_reward_diamond": 130,
+		"victory_reward_exp": 52,
+	},
+	15 : {
+		"waves": [
+			[
+				{ "id": &"e15_w1a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 137, "hp": 1150, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e15_w1b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 137, "hp": 1150, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e15_w1c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 148, "hp": 996, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+			],
+			[
+				{ "id": &"e15_w2a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 137, "hp": 1150, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e15_w2b", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 148, "hp": 996, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e15_w2c", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 125, "hp": 1245, "def": 9, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+			[
+				{ "id": &"e15_boss", "name": "重装机甲·钢甲", "tier": "boss", "class": "tank", "atk": 239, "hp": 5748, "def": 13, "spd": 7, "skills": [&"enemy_heavy", &"enemy_shield"], "ultimate": &"enemy_boss_ult" },
+				{ "id": &"e15_w3b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 137, "hp": 1150, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e15_w3c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 148, "hp": 996, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+			],
+		],
+		"first_clear_reward": 1900,
+		"first_clear_reward_diamond": 135,
+		"victory_reward_exp": 55,
+	},
+	16 : {
+		"waves": [
+			[
+				{ "id": &"e16_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 167, "hp": 1402, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e16_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 167, "hp": 1402, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e16_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 167, "hp": 1402, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e16_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 181, "hp": 1215, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e16_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 153, "hp": 1519, "def": 9, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2050,
+		"first_clear_reward_diamond": 140,
+		"victory_reward_exp": 58,
+	},
+	17 : {
+		"waves": [
+			[
+				{ "id": &"e17_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 203, "hp": 1711, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e17_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 203, "hp": 1711, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e17_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 220, "hp": 1483, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e17_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 186, "hp": 1854, "def": 9, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2200,
+		"first_clear_reward_diamond": 145,
+		"victory_reward_exp": 61,
+	},
+	18 : {
+		"waves": [
+			[
+				{ "id": &"e18_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 248, "hp": 2087, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e18_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 248, "hp": 2087, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e18_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 248, "hp": 2087, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e18_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 268, "hp": 1809, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e18_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 227, "hp": 2261, "def": 9, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2350,
+		"first_clear_reward_diamond": 150,
+		"victory_reward_exp": 64,
+	},
+	19 : {
+		"waves": [
+			[
+				{ "id": &"e19_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 302, "hp": 2547, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e19_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 302, "hp": 2547, "def": 6, "spd": 5, "skills": [&"enemy_shot"] },
+				{ "id": &"e19_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 328, "hp": 2207, "def": 5, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e19_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 277, "hp": 2759, "def": 9, "spd": 4, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2500,
+		"first_clear_reward_diamond": 155,
+		"victory_reward_exp": 67,
+	},
+	20 : {
+		"waves": [
+			[
+				{ "id": &"e20_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 369, "hp": 3107, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e20_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 369, "hp": 3107, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e20_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 369, "hp": 3107, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e20_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 400, "hp": 2693, "def": 6, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e20_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 338, "hp": 3366, "def": 10, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2650,
+		"first_clear_reward_diamond": 160,
+		"victory_reward_exp": 70,
+	},
+	21 : {
+		"waves": [
+			[
+				{ "id": &"e21_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 450, "hp": 3791, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e21_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 450, "hp": 3791, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e21_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 488, "hp": 3285, "def": 6, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e21_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 413, "hp": 4107, "def": 10, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2800,
+		"first_clear_reward_diamond": 165,
+		"victory_reward_exp": 73,
+	},
+	22 : {
+		"waves": [
+			[
+				{ "id": &"e22_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 549, "hp": 4624, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e22_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 549, "hp": 4624, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e22_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 549, "hp": 4624, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e22_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 595, "hp": 4008, "def": 6, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e22_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 503, "hp": 5010, "def": 10, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 2950,
+		"first_clear_reward_diamond": 170,
+		"victory_reward_exp": 76,
+	},
+	23 : {
+		"waves": [
+			[
+				{ "id": &"e23_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 670, "hp": 5642, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e23_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 670, "hp": 5642, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e23_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 726, "hp": 4890, "def": 6, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e23_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 614, "hp": 6112, "def": 10, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 3100,
+		"first_clear_reward_diamond": 175,
+		"victory_reward_exp": 79,
+	},
+	24 : {
+		"waves": [
+			[
+				{ "id": &"e24_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 817, "hp": 6883, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e24_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 817, "hp": 6883, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e24_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 817, "hp": 6883, "def": 7, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e24_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 885, "hp": 5965, "def": 6, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e24_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 749, "hp": 7457, "def": 10, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 3250,
+		"first_clear_reward_diamond": 180,
+		"victory_reward_exp": 82,
+	},
+	25 : {
+		"waves": [
+			[
+				{ "id": &"e25_w1a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 997, "hp": 8397, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e25_w1b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 997, "hp": 8397, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e25_w1c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1080, "hp": 7277, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+			],
+			[
+				{ "id": &"e25_w2a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 997, "hp": 8397, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e25_w2b", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1080, "hp": 7277, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e25_w2c", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 914, "hp": 9097, "def": 11, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+			[
+				{ "id": &"e25_boss", "name": "收割者·蜂群", "tier": "boss", "class": "archer", "atk": 1745, "hp": 41985, "def": 15, "spd": 8, "skills": [&"enemy_shot", &"enemy_burn"], "ultimate": &"enemy_boss_ult" },
+				{ "id": &"e25_w3b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 997, "hp": 8397, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e25_w3c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1080, "hp": 7277, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+			],
+		],
+		"first_clear_reward": 3400,
+		"first_clear_reward_diamond": 185,
+		"victory_reward_exp": 85,
+	},
+	26 : {
+		"waves": [
+			[
+				{ "id": &"e26_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 1217, "hp": 10244, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e26_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 1217, "hp": 10244, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e26_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1318, "hp": 8878, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e26_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1318, "hp": 8878, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e26_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 1115, "hp": 11098, "def": 11, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 3550,
+		"first_clear_reward_diamond": 190,
+		"victory_reward_exp": 88,
+	},
+	27 : {
+		"waves": [
+			[
+				{ "id": &"e27_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 1484, "hp": 12499, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e27_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 1484, "hp": 12499, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e27_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1608, "hp": 10832, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e27_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1608, "hp": 10832, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e27_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 1361, "hp": 13540, "def": 11, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 3700,
+		"first_clear_reward_diamond": 195,
+		"victory_reward_exp": 91,
+	},
+	28 : {
+		"waves": [
+			[
+				{ "id": &"e28_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 1811, "hp": 15248, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e28_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 1811, "hp": 15248, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e28_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1962, "hp": 13215, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e28_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 1962, "hp": 13215, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e28_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 1660, "hp": 16519, "def": 11, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 3850,
+		"first_clear_reward_diamond": 200,
+		"victory_reward_exp": 94,
+	},
+	29 : {
+		"waves": [
+			[
+				{ "id": &"e29_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 2209, "hp": 18603, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e29_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 2209, "hp": 18603, "def": 8, "spd": 6, "skills": [&"enemy_shot"] },
+				{ "id": &"e29_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 2393, "hp": 16123, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e29_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 2393, "hp": 16123, "def": 7, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e29_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 2025, "hp": 20153, "def": 11, "spd": 5, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 4000,
+		"first_clear_reward_diamond": 205,
+		"victory_reward_exp": 97,
+	},
+	30 : {
+		"waves": [
+			[
+				{ "id": &"e30_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 2695, "hp": 22696, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e30_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 2695, "hp": 22696, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e30_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 2920, "hp": 19670, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e30_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 2920, "hp": 19670, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e30_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 2471, "hp": 24587, "def": 12, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 4150,
+		"first_clear_reward_diamond": 210,
+		"victory_reward_exp": 100,
+	},
+	31 : {
+		"waves": [
+			[
+				{ "id": &"e31_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 3288, "hp": 27688, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e31_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 3288, "hp": 27688, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e31_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 3562, "hp": 23996, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e31_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 3562, "hp": 23996, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e31_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 3014, "hp": 29996, "def": 12, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 4300,
+		"first_clear_reward_diamond": 215,
+		"victory_reward_exp": 103,
+	},
+	32 : {
+		"waves": [
+			[
+				{ "id": &"e32_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 4012, "hp": 33780, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e32_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 4012, "hp": 33780, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e32_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 4346, "hp": 29276, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e32_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 4346, "hp": 29276, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e32_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 3677, "hp": 36595, "def": 12, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 4450,
+		"first_clear_reward_diamond": 220,
+		"victory_reward_exp": 106,
+	},
+	33 : {
+		"waves": [
+			[
+				{ "id": &"e33_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 4894, "hp": 41212, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e33_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 4894, "hp": 41212, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e33_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 5301, "hp": 35717, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e33_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 5301, "hp": 35717, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e33_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 4486, "hp": 44646, "def": 12, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 4600,
+		"first_clear_reward_diamond": 225,
+		"victory_reward_exp": 109,
+	},
+	34 : {
+		"waves": [
+			[
+				{ "id": &"e34_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 5971, "hp": 50278, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e34_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 5971, "hp": 50278, "def": 9, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e34_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 6468, "hp": 43574, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e34_w1b1", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 6468, "hp": 43574, "def": 8, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e34_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 5473, "hp": 54467, "def": 12, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 4750,
+		"first_clear_reward_diamond": 230,
+		"victory_reward_exp": 112,
+	},
+	35 : {
+		"waves": [
+			[
+				{ "id": &"e35_w1a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 7284, "hp": 61339, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e35_w1b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 7284, "hp": 61339, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e35_w1c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 7891, "hp": 53161, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+			],
+			[
+				{ "id": &"e35_w2a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 7284, "hp": 61339, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e35_w2b", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 7891, "hp": 53161, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e35_w2c", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 6677, "hp": 66451, "def": 13, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+			[
+				{ "id": &"e35_boss", "name": "暴走引擎·熔核", "tier": "boss", "class": "mage", "atk": 12747, "hp": 306696, "def": 17, "spd": 9, "skills": [&"enemy_burn", &"enemy_ice"], "ultimate": &"enemy_boss_ult" },
+				{ "id": &"e35_w3b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 7284, "hp": 61339, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e35_w3c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 7891, "hp": 53161, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+			],
+		],
+		"first_clear_reward": 4900,
+		"first_clear_reward_diamond": 235,
+		"victory_reward_exp": 115,
+	},
+	36 : {
+		"waves": [
+			[
+				{ "id": &"e36_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 8887, "hp": 74834, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e36_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 8887, "hp": 74834, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e36_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 8887, "hp": 74834, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e36_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 9627, "hp": 64856, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e36_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 8146, "hp": 81070, "def": 13, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5050,
+		"first_clear_reward_diamond": 240,
+		"victory_reward_exp": 118,
+	},
+	37 : {
+		"waves": [
+			[
+				{ "id": &"e37_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 10841, "hp": 91297, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e37_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 10841, "hp": 91297, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e37_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 10841, "hp": 91297, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e37_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 11745, "hp": 79124, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e37_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 9938, "hp": 98905, "def": 13, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5200,
+		"first_clear_reward_diamond": 245,
+		"victory_reward_exp": 121,
+	},
+	38 : {
+		"waves": [
+			[
+				{ "id": &"e38_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 13226, "hp": 111382, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e38_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 13226, "hp": 111382, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e38_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 13226, "hp": 111382, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e38_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 14329, "hp": 96531, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e38_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 12124, "hp": 120664, "def": 13, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5350,
+		"first_clear_reward_diamond": 250,
+		"victory_reward_exp": 124,
+	},
+	39 : {
+		"waves": [
+			[
+				{ "id": &"e39_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 16136, "hp": 135886, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e39_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 16136, "hp": 135886, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e39_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 16136, "hp": 135886, "def": 10, "spd": 7, "skills": [&"enemy_shot"] },
+				{ "id": &"e39_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 17481, "hp": 117768, "def": 9, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e39_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 14792, "hp": 147210, "def": 13, "spd": 6, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5500,
+		"first_clear_reward_diamond": 255,
+		"victory_reward_exp": 127,
+	},
+	40 : {
+		"waves": [
+			[
+				{ "id": &"e40_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 19687, "hp": 165781, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e40_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 19687, "hp": 165781, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e40_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 19687, "hp": 165781, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e40_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 21327, "hp": 143677, "def": 10, "spd": 9, "skills": [&"enemy_shot"] },
+				{ "id": &"e40_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 18046, "hp": 179596, "def": 14, "spd": 7, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5650,
+		"first_clear_reward_diamond": 260,
+		"victory_reward_exp": 130,
+	},
+	41 : {
+		"waves": [
+			[
+				{ "id": &"e41_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 24017, "hp": 202253, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e41_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 24017, "hp": 202253, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e41_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 24017, "hp": 202253, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e41_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 26019, "hp": 175286, "def": 10, "spd": 9, "skills": [&"enemy_shot"] },
+				{ "id": &"e41_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 22016, "hp": 219108, "def": 14, "spd": 7, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5800,
+		"first_clear_reward_diamond": 265,
+		"victory_reward_exp": 133,
+	},
+	42 : {
+		"waves": [
+			[
+				{ "id": &"e42_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 29302, "hp": 246749, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e42_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 29302, "hp": 246749, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e42_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 29302, "hp": 246749, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e42_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 31743, "hp": 213849, "def": 10, "spd": 9, "skills": [&"enemy_shot"] },
+				{ "id": &"e42_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 26860, "hp": 267311, "def": 14, "spd": 7, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 5950,
+		"first_clear_reward_diamond": 270,
+		"victory_reward_exp": 136,
+	},
+	43 : {
+		"waves": [
+			[
+				{ "id": &"e43_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 35748, "hp": 301034, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e43_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 35748, "hp": 301034, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e43_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 35748, "hp": 301034, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e43_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 38727, "hp": 260896, "def": 10, "spd": 9, "skills": [&"enemy_shot"] },
+				{ "id": &"e43_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 32769, "hp": 326120, "def": 14, "spd": 7, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 6100,
+		"first_clear_reward_diamond": 275,
+		"victory_reward_exp": 139,
+	},
+	44 : {
+		"waves": [
+			[
+				{ "id": &"e44_w1a0", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 43612, "hp": 367261, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e44_w1a1", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 43612, "hp": 367261, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e44_w1a2", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 43612, "hp": 367261, "def": 11, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e44_w1b0", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 47247, "hp": 318293, "def": 10, "spd": 9, "skills": [&"enemy_shot"] },
+				{ "id": &"e44_w1c0", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 39978, "hp": 397866, "def": 14, "spd": 7, "skills": [&"enemy_heavy"] },
+			],
+		],
+		"first_clear_reward": 6250,
+		"first_clear_reward_diamond": 280,
+		"victory_reward_exp": 142,
+	},
+	45 : {
+		"waves": [
+			[
+				{ "id": &"e45_w1a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 53207, "hp": 448058, "def": 12, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e45_w1b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 53207, "hp": 448058, "def": 12, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e45_w1c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 57641, "hp": 388317, "def": 11, "spd": 9, "skills": [&"enemy_shot"] },
+			],
+			[
+				{ "id": &"e45_w2a", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 53207, "hp": 448058, "def": 12, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e45_w2b", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 57641, "hp": 388317, "def": 11, "spd": 9, "skills": [&"enemy_shot"] },
+				{ "id": &"e45_w2c", "name": "失控重盾", "tier": "elite", "class": "tank", "atk": 48773, "hp": 485397, "def": 15, "spd": 7, "skills": [&"enemy_heavy"] },
+			],
+			[
+				{ "id": &"e45_boss", "name": "中枢 AI·智械", "tier": "boss", "class": "tank", "atk": 93112, "hp": 2240292, "def": 19, "spd": 10, "skills": [&"enemy_sweep", &"enemy_heavy"], "ultimate": &"enemy_boss_ult" },
+				{ "id": &"e45_w3b", "name": "失控机械兵", "tier": "normal", "class": "fighter", "atk": 53207, "hp": 448058, "def": 12, "spd": 8, "skills": [&"enemy_shot"] },
+				{ "id": &"e45_w3c", "name": "失控枪手", "tier": "normal", "class": "archer", "atk": 57641, "hp": 388317, "def": 11, "spd": 9, "skills": [&"enemy_shot"] },
+			],
+		],
+		"first_clear_reward": 6400,
+		"first_clear_reward_diamond": 285,
+		"victory_reward_exp": 145,
 	},
 }

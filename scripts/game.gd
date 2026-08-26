@@ -1481,14 +1481,16 @@ func _resolve_victory() -> void:
 			diamond += diamond_reward
 			Contract.diamond_changed.emit(diamond)
 		# 首通掉落小钰碎片（设计文档 §1.3 / 附录 B，v0.15：普通关 1 片、章节 BOSS 关 3 片；一次性）
-		var xiaoyu_frag: int = Data.XIAOYU_FRAGMENT_FIRST_CLEAR
-		if int(Data.CHAPTERS[1].boss_level) == level:
-			xiaoyu_frag = Data.XIAOYU_FRAGMENT_BOSS
+		var chapter := _level_chapter(level)
+		var is_chapter_boss: bool = level == int(Data.CHAPTERS[chapter].boss_level)
+		var xiaoyu_frag: int = Data.XIAOYU_FRAGMENT_BOSS if is_chapter_boss else Data.XIAOYU_FRAGMENT_FIRST_CLEAR
 		fragments[&"xiao_yu"] = int(fragments.get(&"xiao_yu", 0)) + xiaoyu_frag
 		Contract.fragments_updated.emit(&"xiao_yu", int(fragments[&"xiao_yu"]))
-		# BOSS 关记录
-		if int(Data.CHAPTERS[1].boss_level) == level:
+		# BOSS 关记录 + 章节 BOSS 首通大额奖励（v0.23：金币/钻石 + 宝石入 gem_stock + 装备入 equip_inventory）
+		if is_chapter_boss:
 			cleared_boss[level] = true
+			if Data.BOSS_FIRST_CLEAR_REWARD.has(chapter):
+				_grant_boss_clear_reward(chapter)
 		# 主线首通发放宝箱（每关 1 个，v0.13）
 		boxes += 1
 		Contract.box_count_changed.emit(boxes)
@@ -1560,6 +1562,39 @@ func _check_chapter_chest() -> void:
 		Contract.gold_changed.emit(gold)
 		Contract.diamond_changed.emit(diamond)
 		Contract.battle_prompt.emit(&"skill", "章节宝箱已开启！")
+
+## 关卡所属章（v0.23：遍历 CHAPTERS 累计关卡数判断；用于章节 BOSS 判定/奖励）
+func _level_chapter(level: int) -> int:
+	var acc := 0
+	for chapter in Data.CHAPTERS:
+		acc += int(Data.CHAPTERS[chapter].levels)
+		if level <= acc:
+			return int(chapter)
+	return int(Data.CHAPTERS.size())
+
+## 章节 BOSS 首通大额奖励（v0.23：金币/钻石入账 + 宝石入 gem_stock + 装备入 equip_inventory；
+## 数值读 Data.BOSS_FIRST_CLEAR_REWARD[chapter]；一次性，随首通触发）
+func _grant_boss_clear_reward(chapter: int) -> void:
+	var cfg: Dictionary = Data.BOSS_FIRST_CLEAR_REWARD[chapter]
+	var gold_gain: int = int(cfg.get("gold", 0))
+	var diamond_gain: int = int(cfg.get("diamond", 0))
+	if gold_gain > 0:
+		gold += gold_gain
+		Contract.gold_changed.emit(gold)
+	if diamond_gain > 0:
+		diamond += diamond_gain
+		Contract.diamond_changed.emit(diamond)
+	var gem_q := StringName(str(cfg.get("gem", "white")))
+	var gem_amount: int = int(cfg.get("gem_amount", 0))
+	if gem_amount > 0:
+		gem_stock[gem_q] = int(gem_stock.get(gem_q, 0)) + gem_amount
+		Contract.gem_stock_changed.emit(gem_stock)
+	var equip_amount: int = int(cfg.get("equip_amount", 0))
+	var equip_star: int = int(cfg.get("equip_star", 1))
+	for i in equip_amount:
+		equip_inventory.append(_spawn_equip(_random_slot(), equip_star))
+	if equip_amount > 0:
+		Contract.equip_inventory_changed.emit(equip_inventory)
 
 ## 秘境胜利结算（v0.13）：预扣体力保留（成功消耗）→ 首通钻石 + 掉落资源 →
 ## 上阵机娘经验 → 通关记录 → 发 dungeon_reward / dungeon_cleared_changed → 存档
