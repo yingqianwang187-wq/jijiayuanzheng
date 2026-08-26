@@ -4,10 +4,13 @@
 # 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.8（v0.7）、scripts/contract.gd（只读）
 # 职责   ：抽卡界面的纯显示层。
 #          - 连接信号：diamond_changed / gacha_result / owned_mechs_updated
-#          - 按钮只调入口（契约 §3.6）：单抽/十连 → Game.summon(pool, times)；
-#            返回 → 切回 Main.tscn
+#          - 按钮只调入口（契约 §3.6）：单抽/十连 → Game.summon(pool, times)（Game 内部
+#            已支持"1 券 = 300 钻 = 1 抽、优先扣券"，UI 只判断可用性，不自行扣减）
 #          - 只读入口：Game.summon_cost(pool, times) 显示所需钻石（含免费十连/新手半价）；
-#                      Game.summon_pity_info(pool) 显示 SSR 保底进度
+#                      Game.summon_pity_info(pool) 显示 SSR 保底进度；Game.diamond /
+#                      Game.summon_ticket（召唤券，1 券 = Data.SUMMON_TICKET_VALUE 钻）
+# 召唤券适配（用户反馈 #32）：按钮可用性 = 钻石 + 召唤券 × 单券价值 ≥ 成本；界面显示券数；
+#          抽卡优先扣券由 Game.summon 处理（契约 §3.8）
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / diamond= 等）、无 emit、
 #          一切更新值以 Game 信号参数为准，UI 不缓存游戏数值。
 # 首屏说明：本场景从主界面切换而来，切换前的信号已错过；故 _ready 对 Game 公开状态
@@ -41,7 +44,6 @@ func _ready() -> void:
 	_ten_button.pressed.connect(_on_summon_pressed.bind(10))
 	_back_button.pressed.connect(_on_back_pressed)
 	# 首屏只读快照（见文件头"首屏说明"）
-	_diamond_label.text = "钻石：%d" % Game.diamond
 	_refresh_pool_ui()
 	_rebuild_owned_list()
 
@@ -49,9 +51,9 @@ func _ready() -> void:
 ## ------------------------------------------------------------------
 ## 信号处理（只刷新显示）
 ## ------------------------------------------------------------------
-func _on_diamond_changed(value: int) -> void:
-	_diamond_label.text = "钻石：%d" % value
-	_refresh_pool_ui()  # 钻石变化影响单抽/十连按钮可用性
+func _on_diamond_changed(_value: int) -> void:
+	# 钻石/召唤券变化 → 刷新余额显示与按钮可用性（券数一并刷新，无需新信号）
+	_refresh_pool_ui()
 
 
 func _on_gacha_result(entries: Array) -> void:
@@ -93,11 +95,15 @@ func _refresh_pool_ui() -> void:
 	_novice_button.button_pressed = (_pool == &"novice")
 	var single_cost: int = Game.summon_cost(_pool, 1)
 	var ten_cost: int = Game.summon_cost(_pool, 10)
-	_cost_label.text = "单抽 %d 钻石 / 十连 %d 钻石" % [single_cost, ten_cost]
+	# 可用货币 = 钻石 + 召唤券 × 单券价值（契约 §3.8：1 券 = 300 钻 = 1 抽；
+	# Game.summon 优先扣券，UI 只判断合计是否够）
+	var afford: int = int(Game.diamond) + int(Game.summon_ticket) * Data.SUMMON_TICKET_VALUE
+	_diamond_label.text = "钻石：%d（召唤券 ×%d）" % [int(Game.diamond), int(Game.summon_ticket)]
+	_cost_label.text = "单抽 %d 钻 / 十连 %d 钻（召唤券 ×%d，1 券 = %d 钻，可用券抵扣）" % [single_cost, ten_cost, int(Game.summon_ticket), Data.SUMMON_TICKET_VALUE]
 	_single_button.text = _button_text("单抽", single_cost)
 	_ten_button.text = _button_text("十连", ten_cost)
-	_single_button.disabled = Game.diamond < single_cost
-	_ten_button.disabled = Game.diamond < ten_cost
+	_single_button.disabled = afford < single_cost
+	_ten_button.disabled = afford < ten_cost
 	var pity: Dictionary = Game.summon_pity_info(_pool)
 	_pity_label.text = "SSR 保底进度：%d/%d（再 %d 抽必出）" % [
 		int(pity.get("progress", 0)),
