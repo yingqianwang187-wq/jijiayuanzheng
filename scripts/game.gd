@@ -90,6 +90,14 @@ var title_equipped: StringName = &""              # 当前佩戴称号（空 = �
 var affinity: Dictionary = {}                     # 好感 {mech_id: int 0~100}
 var _total_summon_count: int = 0                  # 累计抽卡次数（成就 progress 用；入档）
 
+## v0.18：指挥官 / 引导 / 活动
+var commander_exp: int = 0                        # 指挥官经验
+var commander_level: int = 1                      # 指挥官等级（初始 1）
+var commander_ten_rewarded: int = 0               # 已发免费十连的档位（每 5 级 +10 券，一次性）
+var guide_step: int = 0                           # 引导步数 0~6（6 = 完成）
+var guide_skipped: bool = false                   # 引导是否跳过
+var activity_claimed: Array = []                  # 已领活动 [StringName id]
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -369,6 +377,19 @@ func _load_initial_state() -> void:
 			if Data.MECH_GIRLS.has(StringName(str(mech_id))):
 				affinity[StringName(str(mech_id))] = clampi(int(affinity_data[mech_id]), 0, Data.AFFINITY_MAX)
 	_total_summon_count = maxi(int(data.get("total_summon_count", 0)), 0)
+	# —— v0.18：指挥官 / 引导 / 活动 ——
+	commander_exp = maxi(int(data.get("commander_exp", 0)), 0)
+	commander_level = maxi(int(data.get("commander_level", 1)), 1)
+	commander_ten_rewarded = maxi(int(data.get("commander_ten_rewarded", 0)), 0)
+	guide_step = clampi(int(data.get("guide_step", 0)), 0, Data.GUIDE_STEPS.size())
+	guide_skipped = bool(data.get("guide_skipped", false))
+	activity_claimed = []
+	var activity_data: Variant = data.get("activity_claimed", [])
+	if activity_data is Array:
+		for a in activity_data:
+			var aid := StringName(str(a))
+			if Data.ACTIVITIES.has(aid):
+				activity_claimed.append(aid)
 	# 成就 / 称号自动检查（新档启动时同步状态）
 	_check_achievements()
 	_check_titles()
@@ -428,6 +449,10 @@ func _emit_initial_state() -> void:
 	Contract.collection_changed.emit(_collection_count())
 	Contract.achievement_changed.emit(_achievement_list())
 	Contract.title_changed.emit(titles_unlocked, title_equipped)
+	# v0.18：指挥官 / 引导 / 活动
+	Contract.commander_changed.emit(commander_level, commander_exp)
+	Contract.guide_changed.emit(guide_step)
+	Contract.activity_changed.emit(_activity_list())
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -544,19 +569,25 @@ func _upgrade_exp_cost(mech_id: StringName, current_level: int) -> int:
 ## 金币不足同样失败。
 ## ---------------------------------------------------------------
 func upgrade(mech_id: StringName) -> void:
+	_do_upgrade_once(mech_id)
+	Save.save_game()
+
+## 单次升级（v0.18 抽取：手动 upgrade 与自动升级 _try_auto_upgrade 共用）
+## 返回是否升级成功（资源不足 / 满级 / 非法 → false）
+func _do_upgrade_once(mech_id: StringName) -> bool:
 	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
-		return
+		return false
 	var current_level: int = int(mech_levels.get(mech_id, 1))
 	# 等级上限（v0.10）：满级不可再升
 	if current_level >= get_level_cap(mech_id):
-		return
+		return false
 	var current_exp: int = int(mech_exp.get(mech_id, 0))
 	var gold_cost: int = _upgrade_cost(mech_id, current_level)
 	var exp_cost: int = _upgrade_exp_cost(mech_id, current_level)
 	# 经验判定：个人条 + 余额合计是否够
 	var total_exp: int = current_exp + exp_balance
 	if gold < gold_cost or total_exp < exp_cost:
-		return
+		return false
 	# 扣经验：先个人条，不足从余额补
 	var exp_from_personal: int = mini(current_exp, exp_cost)
 	var exp_from_balance: int = exp_cost - exp_from_personal
@@ -578,7 +609,23 @@ func upgrade(mech_id: StringName) -> void:
 	_bump_task("weekly", &"upgrade_total")
 	_bump_novice(&"upgrade_count")
 	_refresh_novice_power()
-	Save.save_game()
+	return true
+
+## 自动升级（v0.18）：循环升级该机娘直到资源不足 / 满级（战斗胜利 / 挂机收获后触发）
+func _try_auto_upgrade(mech_id: StringName) -> void:
+	while _do_upgrade_once(mech_id):
+		pass
+
+## 自动升级全部拥有机娘（胜利结算 / 收获后调用；统一存档一次）
+func _auto_upgrade_all() -> void:
+	var upgraded := false
+	for mech_id in _owned_mech_ids():
+		var before: int = int(mech_levels.get(mech_id, 1))
+		_try_auto_upgrade(mech_id)
+		if int(mech_levels.get(mech_id, 1)) != before:
+			upgraded = true
+	if upgraded:
+		Save.save_game()
 
 ## ---------------------------------------------------------------
 ## 进入关卡，开始自动节拍战斗（契约 §3.6 / §3.9 入口，v0.8 战斗 2.0；v0.9 主线规则）
@@ -1417,6 +1464,9 @@ func _resolve_victory() -> void:
 	_gain_battle_affinity()
 	_check_achievements()
 	_check_titles()
+	# v0.18：自动升级（胜利后资源够自动升）+ 指挥官经验（推关）
+	_auto_upgrade_all()
+	_gain_commander_exp(Data.COMMANDER_EXP_STORY)
 	Contract.battle_star.emit(star)
 	Contract.level_cleared.emit(level, first_clear)
 	Save.save_game()
@@ -1491,6 +1541,7 @@ func _resolve_dungeon_victory() -> void:
 	Contract.dungeon_reward.emit(kind, tier, rewards)
 	# last_clear 仅供主线通关显示（主界面"上次通关"），秘境反馈已走 dungeon_reward 信号，不写 last_clear
 	_gain_battle_affinity()  # v0.17：出战胜利好感 +1
+	_auto_upgrade_all()  # v0.18：秘境胜利后资源够自动升级
 	Save.save_game()
 
 ## 失败：发 battle_failed → 停止战斗，可重试
@@ -1544,6 +1595,7 @@ func collect_idle() -> void:
 	idle_last_time = int(Time.get_unix_time_from_system())
 	Contract.idle_rewards_updated.emit(0, 0)
 	_bump_task("daily", &"collect_idle")  # 任务钩子（v0.16）：收获
+	_auto_upgrade_all()  # v0.18：收获后资源够自动升级
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -2727,6 +2779,8 @@ func _resolve_tower_victory() -> void:
 	_gain_battle_affinity()
 	_check_achievements()
 	_check_titles()
+	# v0.18：自动升级（爬塔胜利后资源够自动升）
+	_auto_upgrade_all()
 	Contract.tower_changed.emit(tower_highest, tower_daily_count)
 	Save.save_game()
 
@@ -2805,6 +2859,7 @@ func claim_task_reward(scope: String, tier: int) -> void:
 		_grant_task_reward(reward)
 	store["claimed"].append(tier)
 	Contract.task_changed.emit(task_daily, task_weekly)
+	_gain_commander_exp(Data.COMMANDER_EXP_TASK)  # v0.18：任务领奖给指挥官经验
 	Save.save_game()
 
 ## 只读：任务信息（契约 §3.6 入口，v0.16）
@@ -2975,6 +3030,7 @@ func claim_achievement(id: StringName) -> void:
 		_grant_task_reward(reward)
 	achievements_claimed.append(id)
 	Contract.achievement_changed.emit(_achievement_list())
+	_gain_commander_exp(Data.COMMANDER_EXP_ACHIEVEMENT)  # v0.18：成就领奖给指挥官经验
 	Save.save_game()
 
 ## ================================================================
@@ -3060,6 +3116,115 @@ func _affinity_bonus_atk(mech_id: StringName) -> float:
 		return Data.AFFINITY_MAX_BONUS_ATK
 	return 0.0
 
+## ================================================================
+## v0.18：新手引导（契约 §3.15 / 设计文档 §10.11）
+## ================================================================
+## 推进引导（契约 §3.6 入口，v0.18）：step 0~6，6 = 完成
+func guide_next() -> void:
+	if guide_step >= Data.GUIDE_STEPS.size():
+		return
+	guide_step += 1
+	Contract.guide_changed.emit(guide_step)
+	Save.save_game()
+
+## 跳过引导（契约 §3.6 入口，v0.18）：标记跳过并置为完成
+func guide_skip() -> void:
+	if guide_skipped:
+		return
+	guide_skipped = true
+	guide_step = Data.GUIDE_STEPS.size()
+	Contract.guide_changed.emit(guide_step)
+	Save.save_game()
+
+## 只读：引导信息（契约 §3.6 入口，v0.18）
+func get_guide_info() -> Dictionary:
+	return {
+		"step": guide_step,
+		"skipped": guide_skipped,
+		"done": guide_step >= Data.GUIDE_STEPS.size(),
+		"total": Data.GUIDE_STEPS.size(),
+	}
+
+## ================================================================
+## v0.18：指挥官等级（契约 §3.15 / 设计文档 §4.7）
+## ================================================================
+## 指挥官经验获取（钩子：推关/任务领奖/成就领奖处调用）
+## 经验满升级；每 5 级一次性 +10 召唤券（标记已发档位）
+func _gain_commander_exp(amount: int) -> void:
+	commander_exp += amount
+	var leveled := false
+	while commander_exp >= Data.COMMANDER_EXP_PER_LEVEL:
+		commander_exp -= Data.COMMANDER_EXP_PER_LEVEL
+		commander_level += 1
+		leveled = true
+	while commander_level >= commander_ten_rewarded + Data.COMMANDER_TEN_EVERY_LEVELS:
+		commander_ten_rewarded += Data.COMMANDER_TEN_EVERY_LEVELS
+		summon_ticket += Data.COMMANDER_TEN_TICKETS
+	Contract.commander_changed.emit(commander_level, commander_exp)
+	if leveled:
+		Save.save_game()
+
+## 只读：指挥官信息（契约 §3.6 入口，v0.18）
+func get_commander_info() -> Dictionary:
+	return {
+		"level": commander_level,
+		"exp": commander_exp,
+		"exp_next": Data.COMMANDER_EXP_PER_LEVEL,
+		"ten_rewarded": commander_ten_rewarded,
+	}
+
+## ================================================================
+## v0.18：剧情回顾（契约 §3.15 / 设计文档 §10.9 X23）
+## ================================================================
+## 只读：第 1 章台词（Data + 首通解锁标记；图鉴内回看）
+func get_story_lines() -> Dictionary:
+	var result := {}
+	for level in Data.STORY_LINES:
+		var cfg: Dictionary = Data.STORY_LINES[level]
+		result[level] = {
+			"opening": str(cfg.opening),
+			"clear": str(cfg.clear),
+			"unlocked": cleared_levels.has(level),
+		}
+	return result
+
+## ================================================================
+## v0.18：活动（契约 §3.15 / 设计文档 §10.3）
+## ================================================================
+## 活动列表（含 done / claimed，供 UI 与信号）
+func _activity_list() -> Array:
+	var result: Array = []
+	for aid in Data.ACTIVITIES:
+		var cfg: Dictionary = Data.ACTIVITIES[aid]
+		var cond: Dictionary = cfg.condition
+		var progress: int = _achievement_progress(str(cond.type))
+		result.append({
+			"id": aid,
+			"name": str(cfg.name),
+			"desc": str(cfg.desc),
+			"done": progress >= int(cond.target),
+			"claimed": activity_claimed.has(aid),
+		})
+	return result
+
+## 只读：活动信息（契约 §3.6 入口，v0.18）
+func get_activity_info() -> Array:
+	return _activity_list()
+
+## 领取活动奖励（契约 §3.6 入口，v0.18）：达成且未领
+func claim_activity(id: StringName) -> void:
+	if not Data.ACTIVITIES.has(id) or activity_claimed.has(id):
+		return
+	var cfg: Dictionary = Data.ACTIVITIES[id]
+	var cond: Dictionary = cfg.condition
+	if _achievement_progress(str(cond.type)) < int(cond.target):
+		return
+	for reward in cfg.reward:
+		_grant_task_reward(reward)
+	activity_claimed.append(id)
+	Contract.activity_changed.emit(_activity_list())
+	Save.save_game()
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -3135,4 +3300,11 @@ func get_save_snapshot() -> Dictionary:
 		"title_equipped": title_equipped,
 		"affinity": affinity,
 		"total_summon_count": _total_summon_count,
+		# v0.18：指挥官 / 引导 / 活动
+		"commander_exp": commander_exp,
+		"commander_level": commander_level,
+		"commander_ten_rewarded": commander_ten_rewarded,
+		"guide_step": guide_step,
+		"guide_skipped": guide_skipped,
+		"activity_claimed": activity_claimed,
 	}

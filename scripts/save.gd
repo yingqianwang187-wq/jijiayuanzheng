@@ -83,6 +83,13 @@ func save_game() -> void:
 		"title_equipped": "",
 		"affinity": {},
 		"total_summon_count": maxi(int(snapshot.get("total_summon_count", 0)), 0),
+		# v0.18：指挥官 / 引导 / 活动
+		"commander_exp": maxi(int(snapshot.get("commander_exp", 0)), 0),
+		"commander_level": maxi(int(snapshot.get("commander_level", 1)), 1),
+		"commander_ten_rewarded": maxi(int(snapshot.get("commander_ten_rewarded", 0)), 0),
+		"guide_step": clampi(int(snapshot.get("guide_step", 0)), 0, Data.GUIDE_STEPS.size()),
+		"guide_skipped": bool(snapshot.get("guide_skipped", false)),
+		"activity_claimed": [],
 	}
 	# v0.17：字符串键数组（collection/achievement/title id）与好感映射
 	var collection_claimed_src: Variant = snapshot.get("collection_rewards_claimed", [])
@@ -111,6 +118,13 @@ func save_game() -> void:
 	for mech_id in affinity_src:
 		if Data.MECH_GIRLS.has(StringName(str(mech_id))):
 			save_dict["affinity"][str(mech_id)] = clampi(int(affinity_src[mech_id]), 0, Data.AFFINITY_MAX)
+	# v0.18：活动已领（只认 ACTIVITIES）
+	var activity_claimed_src: Variant = snapshot.get("activity_claimed", [])
+	if activity_claimed_src is Array:
+		for a in activity_claimed_src:
+			var aid := StringName(str(a))
+			if Data.ACTIVITIES.has(aid):
+				save_dict["activity_claimed"].append(str(aid))
 	# 设置（白名单键 + 默认值补齐）
 	var settings_src: Dictionary = snapshot.get("settings", {})
 	for key in Data.SETTINGS_KEYS:
@@ -503,6 +517,23 @@ func load_game() -> Dictionary:
 				result["affinity"][StringName(str(mech_id))] = clampi(int(affinity_src[mech_id]), 0, Data.AFFINITY_MAX)
 	if parsed_dict.has("total_summon_count"):
 		result["total_summon_count"] = maxi(int(parsed_dict["total_summon_count"]), 0)
+	# —— v0.18：指挥官 / 引导 / 活动 ——
+	if parsed_dict.has("commander_exp"):
+		result["commander_exp"] = maxi(int(parsed_dict["commander_exp"]), 0)
+	if parsed_dict.has("commander_level"):
+		result["commander_level"] = maxi(int(parsed_dict["commander_level"]), 1)
+	if parsed_dict.has("commander_ten_rewarded"):
+		result["commander_ten_rewarded"] = maxi(int(parsed_dict["commander_ten_rewarded"]), 0)
+	if parsed_dict.has("guide_step"):
+		result["guide_step"] = clampi(int(parsed_dict["guide_step"]), 0, Data.GUIDE_STEPS.size())
+	if parsed_dict.has("guide_skipped"):
+		result["guide_skipped"] = bool(parsed_dict["guide_skipped"])
+	var activity_claimed_src: Variant = parsed_dict.get("activity_claimed", [])
+	if activity_claimed_src is Array:
+		for a in activity_claimed_src:
+			var aid := StringName(str(a))
+			if Data.ACTIVITIES.has(aid):
+				result["activity_claimed"].append(StringName(aid))
 	return result
 
 ## 反序列化任务存储（progress 只认任务表 key；claimed 只认该任务表档位）
@@ -600,4 +631,11 @@ func _default_data() -> Dictionary:
 		"title_equipped": "",
 		"affinity": {},
 		"total_summon_count": 0,
+		# v0.18：指挥官（1 级 0 经验）/ 引导（未开始）/ 活动（未领）
+		"commander_exp": 0,
+		"commander_level": 1,
+		"commander_ten_rewarded": 0,
+		"guide_step": 0,
+		"guide_skipped": false,
+		"activity_claimed": [],
 	}

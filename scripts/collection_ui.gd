@@ -3,13 +3,15 @@
 # 作者   ：C（画面 + 界面）
 # 依据   ：docs/契约.md §3.5 / §3.6 / §3.14（v0.17）、docs/设计文档.md v0.21 §1.6 ⑩⑮、
 #          scripts/contract.gd（只读，v0.17 新信号）、scripts/game.gd（B 实际返回字段）
-# 职责   ：图鉴（机娘收集 / 成就 / 称号）纯显示层 + 领奖/佩戴入口。
+# 职责   ：图鉴（机娘收集 / 成就 / 称号 / 剧情回顾）纯显示层 + 领奖/佩戴入口。
 #          - 连接信号：collection_changed(count) / achievement_changed(achievements) /
 #            title_changed(unlocked, equipped)
 #          - 按钮只调入口（契约 §3.6）：档位领奖 → Game.claim_collection_reward(tier)；
 #            成就领奖 → Game.claim_achievement(id)；称号佩戴 → Game.equip_title(id)（空串卸下）；
 #            已拥有机娘卡片点击 → 进 MechDetail.tscn（携带 mech_id，经 main_ui.pending_mech_id 传递）；
 #            返回 → 切回 Main.tscn
+#          - 剧情页签（v0.18 §3.15 X23）：第 1 章 5 关台词，只读 Game.get_story_lines()
+#            （B 实现返回 {1..5: {opening, clear, unlocked}}，unlocked = 已首通解锁），无领奖
 #          - 只读入口：Game.get_collection_info()（B 实现返回 {count, total, claimed}）、
 #            Game.get_achievement_info()（B 实现直接返回数组 [{id,name,desc,progress,target,done,claimed}]）、
 #            Game.get_title_info()（{unlocked, equipped}）；奖励/条件等静态文案读 Data 表
@@ -28,12 +30,13 @@ const MainUI := preload("res://scripts/main_ui.gd")
 @onready var _mech_tab_button: Button = $root_box/tab_row/mech_tab_button
 @onready var _achievement_tab_button: Button = $root_box/tab_row/achievement_tab_button
 @onready var _title_tab_button: Button = $root_box/tab_row/title_tab_button
+@onready var _story_tab_button: Button = $root_box/tab_row/story_tab_button
 @onready var _content_box: VBoxContainer = $root_box/scroll/content_box
 @onready var _message_label: Label = $root_box/message_label
 @onready var _back_button: Button = $root_box/back_button
 
 ## ---- UI 内部状态（仅当前页签，不含任何游戏数值）----
-var _tab: StringName = &"mech"   # &"mech" / &"achievement" / &"title"
+var _tab: StringName = &"mech"   # &"mech" / &"achievement" / &"title" / &"story"
 
 
 func _ready() -> void:
@@ -43,6 +46,7 @@ func _ready() -> void:
 	_mech_tab_button.pressed.connect(_on_tab_pressed.bind(&"mech"))
 	_achievement_tab_button.pressed.connect(_on_tab_pressed.bind(&"achievement"))
 	_title_tab_button.pressed.connect(_on_tab_pressed.bind(&"title"))
+	_story_tab_button.pressed.connect(_on_tab_pressed.bind(&"story"))
 	_back_button.pressed.connect(_on_back_pressed)
 	# 首屏只读快照（见文件头"首屏说明"）
 	_refresh_progress()
@@ -78,6 +82,7 @@ func _on_tab_pressed(tab: StringName) -> void:
 	_mech_tab_button.button_pressed = (tab == &"mech")
 	_achievement_tab_button.button_pressed = (tab == &"achievement")
 	_title_tab_button.button_pressed = (tab == &"title")
+	_story_tab_button.button_pressed = (tab == &"story")
 	_refresh_content()
 
 
@@ -90,6 +95,8 @@ func _refresh_content() -> void:
 			_build_achievement_tab()
 		&"title":
 			_build_title_tab()
+		&"story":
+			_build_story_tab()
 
 
 func _clear_content() -> void:
@@ -299,6 +306,49 @@ func _on_equip_title_pressed(title_id: StringName) -> void:
 	# 结果由 title_changed 回发（属性变化随 mech_girl_updated）
 	Game.equip_title(title_id)
 	_message_label.text = "已卸下称号" if title_id == &"" else "已佩戴称号"
+
+
+## ------------------------------------------------------------------
+## 剧情页（v0.18 §3.15 X23）：第 1 章 5 关台词，随首通解锁可回看
+## 只读 Game.get_story_lines()（B 实现返回 {1..5: {opening, clear, unlocked}}）
+## ------------------------------------------------------------------
+func _build_story_tab() -> void:
+	var lines: Dictionary = Game.get_story_lines()
+	var hint := Label.new()
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.text = "第 1 章剧情回顾（通关对应关卡后解锁）"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content_box.add_child(hint)
+	for level in lines:
+		var entry: Dictionary = lines[level]
+		var unlocked: bool = bool(entry.get("unlocked", false))
+		var panel := Panel.new()
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 3)
+		var title := Label.new()
+		title.add_theme_font_size_override("font_size", 13)
+		if unlocked:
+			title.text = "第 %d 关（已解锁）" % int(level)
+		else:
+			title.text = "第 %d 关（未解锁）" % int(level)
+			title.modulate = Color(0.6, 0.6, 0.65)
+		v.add_child(title)
+		var opening := Label.new()
+		opening.add_theme_font_size_override("font_size", 12)
+		opening.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		opening.text = "开场：" + (str(entry.get("opening", "")) if unlocked else "？？？（通关解锁）")
+		if not unlocked:
+			opening.modulate = Color(0.55, 0.55, 0.6)
+		v.add_child(opening)
+		var clear := Label.new()
+		clear.add_theme_font_size_override("font_size", 12)
+		clear.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		clear.text = "通关：" + (str(entry.get("clear", "")) if unlocked else "？？？（通关解锁）")
+		if not unlocked:
+			clear.modulate = Color(0.55, 0.55, 0.6)
+		v.add_child(clear)
+		panel.add_child(v)
+		_content_box.add_child(panel)
 
 
 ## ------------------------------------------------------------------

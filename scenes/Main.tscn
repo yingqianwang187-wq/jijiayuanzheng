@@ -59,6 +59,11 @@ layout_mode = 2
 text = "体力 100/100"
 horizontal_alignment = 2
 
+[node name="commander_label" type="Label" parent="root_box/balance_row"]
+layout_mode = 2
+text = "指挥官 Lv.1"
+horizontal_alignment = 2
+
 [node name="title_label" type="Label" parent="root_box"]
 layout_mode = 2
 text = "机甲远征"
@@ -169,6 +174,11 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "签到"
 
+[node name="activity_button" type="Button" parent="root_box/feature_row2"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "活动"
+
 [node name="bottom_row" type="HBoxContainer" parent="root_box"]
 layout_mode = 2
 theme_override_constants/separation = 10
@@ -192,3 +202,67 @@ text = "布阵"
 layout_mode = 2
 size_flags_horizontal = 3
 text = "图鉴"
+
+[node name="guide_layer" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="guide_mask" type="ColorRect" parent="guide_layer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.55)
+
+[node name="guide_highlight" type="Panel" parent="guide_layer"]
+layout_mode = 0
+mouse_filter = 2
+
+[node name="guide_bubble" type="PanelContainer" parent="guide_layer"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 80.0
+offset_top = -200.0
+offset_right = -80.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="bubble_box" type="VBoxContainer" parent="guide_layer/guide_bubble"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="guide_step_label" type="Label" parent="guide_layer/guide_bubble/bubble_box"]
+layout_mode = 2
+text = "第 1/6 步"
+horizontal_alignment = 1
+
+[node name="guide_desc_label" type="Label" parent="guide_layer/guide_bubble/bubble_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="guide_button_row" type="HBoxContainer" parent="guide_layer/guide_bubble/bubble_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="guide_skip_button" type="Button" parent="guide_layer/guide_bubble/bubble_box/guide_button_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "跳过引导"
+
+[node name="guide_next_button" type="Button" parent="guide_layer/guide_bubble/bubble_box/guide_button_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "下一步"
