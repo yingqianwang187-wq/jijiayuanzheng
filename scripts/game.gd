@@ -97,6 +97,12 @@ var guide_step: int = 0                           # 引导步数 0~6（6 = 完�
 var guide_skipped: bool = false                   # 引导是否跳过
 var activity_claimed: Array = []                  # 已领活动 [StringName id]
 
+## v0.20：限定池 / 皮肤 / 每日 BOSS
+var limited_pity: int = 0                         # 限定池独立 SSR 保底计数（80 抽必出，跨期保留）
+var skins_unlocked: Array = []                    # 已解锁皮肤 [StringName id]
+var skin_equipped: Dictionary = {}                # 穿戴 {mech_id: skin_id}
+var daily_boss: Dictionary = { "day": "", "damage": 0, "reward_claimed": -1 }  # 每日 BOSS {day, damage, reward_claimed}
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -386,6 +392,27 @@ func _load_initial_state() -> void:
 			var aid := StringName(str(a))
 			if Data.ACTIVITIES.has(aid):
 				activity_claimed.append(aid)
+	# —— v0.20：限定池 / 皮肤 / 每日 BOSS ——
+	limited_pity = clampi(int(data.get("limited_pity", 0)), 0, Data.SUMMON_PITY_SSR_LIMIT)
+	skins_unlocked = []
+	var skins_data: Variant = data.get("skins_unlocked", [])
+	if skins_data is Array:
+		for s in skins_data:
+			var sid := StringName(str(s))
+			if Data.SKINS.has(sid):
+				skins_unlocked.append(sid)
+	skin_equipped.clear()
+	var skin_eq_data: Variant = data.get("skin_equipped", {})
+	if skin_eq_data is Dictionary:
+		for mech_id in skin_eq_data:
+			var sid2 := StringName(str(skin_eq_data[mech_id]))
+			if Data.SKINS.has(sid2) and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+				skin_equipped[StringName(str(mech_id))] = sid2
+	var daily_boss_data: Variant = data.get("daily_boss", {})
+	if daily_boss_data is Dictionary:
+		daily_boss["day"] = str(daily_boss_data.get("day", ""))
+		daily_boss["damage"] = maxi(int(daily_boss_data.get("damage", 0)), 0)
+		daily_boss["reward_claimed"] = int(daily_boss_data.get("reward_claimed", -1))
 	# 成就 / 称号自动检查（新档启动时同步状态）
 	_check_achievements()
 	_check_titles()
@@ -448,6 +475,9 @@ func _emit_initial_state() -> void:
 	Contract.commander_changed.emit(commander_level, commander_exp)
 	Contract.guide_changed.emit(guide_step)
 	Contract.activity_changed.emit(_activity_list())
+	# v0.20：皮肤 / 每日 BOSS
+	Contract.skin_changed.emit(skins_unlocked, skin_equipped)
+	Contract.daily_boss_changed.emit(int(daily_boss.damage), str(daily_boss.day))
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -1358,13 +1388,16 @@ func _remaining_hp_ratio(units: Array) -> float:
 		return 0.0
 	return total / max_total
 
-## 胜利：按战斗模式分流（主线 story / 秘境 dungeon / 爬塔 tower，v0.16）
+## 胜利：按战斗模式分流（主线 story / 秘境 dungeon / 爬塔 tower / 每日BOSS boss，v0.20）
 func _resolve_victory() -> void:
 	if battle.mode == &"dungeon":
 		_resolve_dungeon_victory()
 		return
 	if battle.mode == &"tower":
 		_resolve_tower_victory()
+		return
+	if battle.mode == &"boss":
+		_resolve_boss_end()
 		return
 	battle.active = false
 	battle_timer.stop()
@@ -1493,9 +1526,13 @@ func _resolve_dungeon_victory() -> void:
 
 ## 失败：发 battle_failed → 停止战斗，可重试
 ## 秘境挑战失败：全额返还已扣体力（v0.20 裁决：重试不重复扣，成功/扫荡才真正消耗）
+## 每日BOSS 战失败：按伤害结算（v0.20）
 func _resolve_defeat() -> void:
 	battle.active = false
 	battle_timer.stop()
+	if battle.mode == &"boss":
+		_resolve_boss_end()
+		return
 	if battle.mode == &"dungeon" and not battle.dungeon_ctx.is_empty():
 		var cost: int = int(battle.dungeon_ctx.cost)
 		if cost > 0:
@@ -1614,16 +1651,17 @@ func summon(pool: StringName, times: int) -> void:
 		diamond -= diamond_need
 		Contract.diamond_changed.emit(diamond)
 	var pool_cfg: Dictionary = Data.SUMMON_POOLS[pool]
-	# 新手池首十连保底：本次十连第 10 张必出保底位（星澜）
+	var use_limited: bool = pool == &"limited"
+	# 新手池首十连保底：本次十连第 10 张必出保底位（星澜；仅新手池）
 	var first_ten_pity: bool = (pool == &"novice" and times == 10 and not novice_first_ten_done)
 	if first_ten_pity:
 		novice_first_ten_done = true
 	# 累计抽卡次数（成就 progress 用，v0.17）
 	_total_summon_count += times
-	# 1. 生成原始结果 id 列表（含 SSR 80 保底 / 首十连保底）
+	# 1. 生成原始结果 id 列表（含 SSR 80 保底 / 首十连保底；限定池独立保底）
 	var raw_ids: Array = []
 	for i in times:
-		raw_ids.append(_roll_with_pity(pool_cfg, first_ten_pity and i == times - 1))
+		raw_ids.append(_roll_with_pity(pool_cfg, first_ten_pity and i == times - 1, use_limited))
 	# 2. 十连 SR 保底：十连内无 SR+ 则最后一张补为 SR（设计文档 §4.5）
 	if times == 10 and not _ids_contain_sr_plus(raw_ids):
 		raw_ids[times - 1] = _random_member_of_rarity(pool_cfg, Data.Rarity.SR)
@@ -1648,13 +1686,25 @@ func summon(pool: StringName, times: int) -> void:
 	Save.save_game()
 
 ## 单抽内部：SSR 80 保底累计 + 按概率抽一个机娘（契约 §3.8）
-func _roll_with_pity(pool_cfg: Dictionary, force_first_ten: bool) -> StringName:
+## use_limited：限定池使用独立保底 limited_pity（80 抽必 SSR，出 SSR 重置，跨期保留，v0.20）
+func _roll_with_pity(pool_cfg: Dictionary, force_first_ten: bool, use_limited: bool = false) -> StringName:
 	if force_first_ten:
-		# 首十连保底位必出（保底位为 SSR，出 SSR 重置保底计数）
+		# 首十连保底位必出（保底位为 SSR，出 SSR 重置保底计数；仅新手池）
 		pity = 0
 		return StringName(pool_cfg.first_ten_pity)
+	if use_limited:
+		limited_pity += 1
+		var mech_id: StringName = _roll_summon(pool_cfg, true)
+		var lcfg: Dictionary = Data.MECH_GIRLS[mech_id]
+		if int(lcfg.rarity) == Data.Rarity.SSR:
+			limited_pity = 0
+		elif limited_pity >= Data.SUMMON_PITY_SSR_LIMIT:
+			# 限定池 80 抽必出 SSR（UP 概率判定）
+			mech_id = _limited_ssr(pool_cfg)
+			limited_pity = 0
+		return mech_id
 	pity += 1
-	var mech_id: StringName = _roll_summon(pool_cfg)
+	var mech_id: StringName = _roll_summon(pool_cfg, false)
 	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
 	if int(cfg.rarity) == Data.Rarity.SSR:
 		pity = 0
@@ -1665,13 +1715,29 @@ func _roll_with_pity(pool_cfg: Dictionary, force_first_ten: bool) -> StringName:
 	return mech_id
 
 ## 按稀有度占比（SSR 3% / SR 17% / R 80%）随机抽一个池内成员
-func _roll_summon(pool_cfg: Dictionary) -> StringName:
+## use_limited：SSR 档按 up_rate 概率出 UP 机娘（v0.20）
+func _roll_summon(pool_cfg: Dictionary, use_limited: bool = false) -> StringName:
 	var roll: float = randf()
 	if roll < Data.SUMMON_RATE_SSR:
+		if use_limited:
+			return _limited_ssr(pool_cfg)
 		return _random_member_of_rarity(pool_cfg, Data.Rarity.SSR)
 	elif roll < Data.SUMMON_RATE_SSR + Data.SUMMON_RATE_SR:
 		return _random_member_of_rarity(pool_cfg, Data.Rarity.SR)
 	return _random_member_of_rarity(pool_cfg, Data.Rarity.R)
+
+## 限定池 SSR 判定：up_rate 概率出 UP 机娘，否则池内其他 SSR（无其他则 UP）
+func _limited_ssr(pool_cfg: Dictionary) -> StringName:
+	if randf() < float(pool_cfg.get("up_rate", 0.5)):
+		return StringName(pool_cfg.up_id)
+	var up_id := StringName(str(pool_cfg.up_id))
+	var candidates: Array = []
+	for mech_id in pool_cfg.members:
+		if int(Data.MECH_GIRLS[mech_id].rarity) == Data.Rarity.SSR and StringName(str(mech_id)) != up_id:
+			candidates.append(mech_id)
+	if candidates.is_empty():
+		return up_id
+	return StringName(candidates[randi() % candidates.size()])
 
 ## 池内某稀有度随机成员；池内无该稀有度（如新手池 SSR 仅保底位）时退回全池随机
 func _random_member_of_rarity(pool_cfg: Dictionary, rarity: int) -> StringName:
@@ -1735,11 +1801,12 @@ func _summon_cost(pool: StringName, times: int) -> int:
 ## ---------------------------------------------------------------
 ## 只读：保底信息（契约 §3.6 入口，v0.7）
 ## 签名：summon_pity_info(pool: StringName) -> Dictionary（返回 {progress, remain}）
-## 说明：SSR 保底计数为全局（跨池累计，出 SSR 重置），pool 参数暂不影响结果
+## 说明：限定池返回独立保底 limited_pity（v0.20）；其余池为全局 pity（跨池累计，出 SSR 重置）
 ## ---------------------------------------------------------------
 func summon_pity_info(pool: StringName) -> Dictionary:
-	var remain: int = maxi(Data.SUMMON_PITY_SSR_LIMIT - pity, 0)
-	return { "progress": pity, "remain": remain }
+	var progress: int = limited_pity if pool == &"limited" else pity
+	var remain: int = maxi(Data.SUMMON_PITY_SSR_LIMIT - progress, 0)
+	return { "progress": progress, "remain": remain }
 
 ## ---------------------------------------------------------------
 ## 只读：已拥有机娘 id 列表（契约 §3.6 入口，v0.7）
@@ -3147,6 +3214,138 @@ func claim_activity(id: StringName) -> void:
 	Contract.activity_changed.emit(_activity_list())
 	Save.save_game()
 
+## ================================================================
+## v0.20：皮肤（契约 §3.16 X3 / 设计文档 §10.6 X3；纯外观无属性）
+## ================================================================
+## 只读：皮肤信息（契约 §3.6 入口，v0.20）
+func get_skin_info() -> Dictionary:
+	return { "unlocked": skins_unlocked, "equipped": skin_equipped }
+
+## 穿戴/还原皮肤（契约 §3.6 入口，v0.20）：skin_id 传默认（&"default"）还原；
+## 仅可穿该机娘已解锁皮肤
+func equip_skin(mech_id: StringName, skin_id: StringName) -> void:
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+		return
+	if skin_id == Data.SKIN_DEFAULT_ID:
+		skin_equipped.erase(mech_id)
+	else:
+		if not Data.SKINS.has(skin_id) or not skins_unlocked.has(skin_id):
+			return
+		if StringName(str(Data.SKINS[skin_id].mech_id)) != mech_id:
+			return
+		skin_equipped[mech_id] = skin_id
+	Contract.skin_changed.emit(skins_unlocked, skin_equipped)
+	Save.save_game()
+
+## ================================================================
+## v0.20：每日 BOSS（契约 §3.16 X7 / 设计文档 §10.7 X7；每日 1 次、伤害结算）
+## ================================================================
+## 进入每日 BOSS 战（契约 §3.6 入口，v0.20）：每日 1 次；battle.mode = "boss"
+func start_daily_boss() -> void:
+	var today: String = Time.get_date_string_from_system()
+	if daily_boss["day"] == today:
+		return  # 每日 1 次
+	_start_boss_battle(today)
+
+## 构建 BOSS 战（按星期几取当日 BOSS 配置；单波单 BOSS）
+func _start_boss_battle(today: String) -> void:
+	if formation.size() < 2:
+		_ensure_default_formation()
+	var weekday: int = int(Time.get_date_dict_from_system()["weekday"])
+	var boss_cfg: Dictionary = Data.DAILY_BOSSES[weekday]
+	battle = {
+		"level": 0,
+		"tick": 0,
+		"active": true,
+		"mode": &"boss",
+		"dungeon_ctx": { "day": today },
+		"wave": 1,
+		"total_waves": 1,
+		"mechs": [], "enemies": [], "pending_waves": [],
+		"deaths": 0, "mech_ids": [], "accelerate": accelerate,
+	}
+	var used_ids := {}
+	for slot in formation:
+		var mech_id := StringName(str(slot.id))
+		if not owned_mechs.has(mech_id) or used_ids.has(mech_id):
+			continue
+		used_ids[mech_id] = true
+		battle.mechs.append(_build_mech_unit(mech_id, int(slot.row), int(slot.col)))
+		battle.mech_ids.append(mech_id)
+	# 敌方 = 当日 BOSS（单单位，血量高）
+	battle.enemies = [{
+		"side": &"enemy", "id": StringName("daily_boss"), "name": str(boss_cfg.name),
+		"class": "tank", "tier": "boss",
+		"row": 0, "col": 1,
+		"hp": int(boss_cfg.hp), "max_hp": int(boss_cfg.hp), "atk": int(boss_cfg.atk), "def": int(boss_cfg.def), "spd": int(boss_cfg.spd),
+		"energy": 0, "cd_1": 0, "cd_2": 0,
+		"statuses": {}, "buffs": {}, "shield": 0, "taunt_turns": 0, "dodge_crit_ready": false,
+		"alive": true, "dmg_dealt": 0, "heal_done": 0,
+		"passive": { "effects": [] }, "skills": [Data.ENEMY_SKILLS[&"enemy_sweep"], Data.ENEMY_SKILLS[&"enemy_heavy"]], "ultimate": Data.ENEMY_SKILLS[&"enemy_boss_ult"],
+	}]
+	_apply_passive_battle_start()
+	Contract.battle_tick.emit(0)
+	for m in battle.mechs:
+		Contract.mech_girl_updated.emit(m.id, int(m.hp), int(m.atk), int(m.level))
+		Contract.energy_changed.emit(&"mech", m.id, int(m.energy))
+	for e in battle.enemies:
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, int(e.energy))
+	Contract.wave_changed.emit(1, 1)
+	_apply_battle_timer_speed()
+	battle_timer.start()
+
+## BOSS 战结束（伤害结算）：按我方造成伤害合计记录当日最高伤害（v0.20）
+func _resolve_boss_end() -> void:
+	battle.active = false
+	battle_timer.stop()
+	var total_damage := 0
+	for m in battle.mechs:
+		total_damage += int(m.dmg_dealt)
+	var day: String = str(battle.dungeon_ctx.get("day", ""))
+	daily_boss["day"] = day
+	daily_boss["damage"] = maxi(int(daily_boss["damage"]), total_damage)
+	Contract.daily_boss_changed.emit(int(daily_boss["damage"]), day)
+	Save.save_game()
+
+## 只读：每日 BOSS 信息（契约 §3.6 入口，v0.20）
+func get_daily_boss_info() -> Dictionary:
+	var today: String = Time.get_date_string_from_system()
+	return {
+		"day": str(daily_boss["day"]),
+		"damage": int(daily_boss["damage"]),
+		"reward_claimed": int(daily_boss["reward_claimed"]),
+		"today_done": str(daily_boss["day"]) == today,
+	}
+
+## 领取每日 BOSS 伤害档位奖励（契约 §3.6 入口，v0.20）：取最高可达且未领的档位
+func claim_daily_boss_reward() -> void:
+	var damage: int = int(daily_boss["damage"])
+	var claimed: int = int(daily_boss["reward_claimed"])
+	var best_tier: int = -1
+	for i in Data.DAILY_BOSS_REWARD_TIERS.size():
+		if damage >= int(Data.DAILY_BOSS_REWARD_TIERS[i].damage):
+			best_tier = i
+	if best_tier < 0 or best_tier <= claimed:
+		return
+	for reward in Data.DAILY_BOSS_REWARD_TIERS[best_tier].reward:
+		_grant_task_reward(reward)
+	daily_boss["reward_claimed"] = best_tier
+	Contract.daily_boss_changed.emit(int(daily_boss["damage"]), str(daily_boss["day"]))
+	Save.save_game()
+
+## ================================================================
+## v0.20：本地排行榜（契约 §3.16 X13 / 设计文档 §10.8 X13；只读计算，无存档）
+## ================================================================
+## 只读：四榜（战力/爬塔/每日BOSS 伤害/关卡进度）
+func get_rank_info() -> Dictionary:
+	return {
+		"power": _team_power(),
+		"tower": tower_highest,
+		"boss_damage": int(daily_boss["damage"]),
+		"story_progress": cleared_levels.size(),
+	}
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -3228,4 +3427,9 @@ func get_save_snapshot() -> Dictionary:
 		"guide_step": guide_step,
 		"guide_skipped": guide_skipped,
 		"activity_claimed": activity_claimed,
+		# v0.20：限定池 / 皮肤 / 每日 BOSS
+		"limited_pity": limited_pity,
+		"skins_unlocked": skins_unlocked,
+		"skin_equipped": skin_equipped,
+		"daily_boss": daily_boss,
 	}

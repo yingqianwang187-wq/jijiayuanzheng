@@ -168,6 +168,11 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "爬塔"
 
+[node name="daily_boss_button" type="Button" parent="shell_box/page_container/city_page/city_box"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "每日BOSS"
+
 [node name="formation_page" parent="shell_box/page_container" instance=ExtResource("2_fmt")]
 visible = false
 layout_mode = 1

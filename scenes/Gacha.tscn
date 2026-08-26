@@ -59,6 +59,12 @@ size_flags_horizontal = 3
 toggle_mode = true
 text = "新手池"
 
+[node name="limited_button" type="Button" parent="root_box/pool_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "限定池"
+
 [node name="cost_label" type="Label" parent="root_box"]
 layout_mode = 2
 text = "单抽 300 钻石 / 十连 2800 钻石"
@@ -67,6 +73,11 @@ horizontal_alignment = 1
 [node name="pity_label" type="Label" parent="root_box"]
 layout_mode = 2
 text = "SSR 保底进度：0/80"
+horizontal_alignment = 1
+
+[node name="limited_info_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
 horizontal_alignment = 1
 
 [node name="hint_label" type="Label" parent="root_box"]

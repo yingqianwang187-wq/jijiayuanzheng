@@ -90,7 +90,24 @@ func save_game() -> void:
 		"guide_step": clampi(int(snapshot.get("guide_step", 0)), 0, Data.GUIDE_STEPS.size()),
 		"guide_skipped": bool(snapshot.get("guide_skipped", false)),
 		"activity_claimed": [],
+		# v0.20：限定池 / 皮肤 / 每日 BOSS
+		"limited_pity": clampi(int(snapshot.get("limited_pity", 0)), 0, Data.SUMMON_PITY_SSR_LIMIT),
+		"skins_unlocked": [],
+		"skin_equipped": {},
+		"daily_boss": { "day": str(snapshot.get("daily_boss", {}).get("day", "")), "damage": maxi(int(snapshot.get("daily_boss", {}).get("damage", 0)), 0), "reward_claimed": int(snapshot.get("daily_boss", {}).get("reward_claimed", -1)) },
 	}
+	# v0.20：皮肤解锁 / 穿戴（只认 SKINS）
+	var skins_unlocked_src: Variant = snapshot.get("skins_unlocked", [])
+	if skins_unlocked_src is Array:
+		for s in skins_unlocked_src:
+			var sid := StringName(str(s))
+			if Data.SKINS.has(sid):
+				save_dict["skins_unlocked"].append(str(sid))
+	var skin_equipped_src: Dictionary = snapshot.get("skin_equipped", {})
+	for mech_id in skin_equipped_src:
+		var sid2 := StringName(str(skin_equipped_src[mech_id]))
+		if Data.SKINS.has(sid2) and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+			save_dict["skin_equipped"][str(mech_id)] = str(sid2)
 	# v0.17：字符串键数组（collection/achievement/title id）与好感映射
 	var collection_claimed_src: Variant = snapshot.get("collection_rewards_claimed", [])
 	if collection_claimed_src is Array:
@@ -536,6 +553,26 @@ func load_game() -> Dictionary:
 			var aid := StringName(str(a))
 			if Data.ACTIVITIES.has(aid):
 				result["activity_claimed"].append(StringName(aid))
+	# —— v0.20：限定池 / 皮肤 / 每日 BOSS ——
+	if parsed_dict.has("limited_pity"):
+		result["limited_pity"] = clampi(int(parsed_dict["limited_pity"]), 0, Data.SUMMON_PITY_SSR_LIMIT)
+	var skins_unlocked_src: Variant = parsed_dict.get("skins_unlocked", [])
+	if skins_unlocked_src is Array:
+		for s in skins_unlocked_src:
+			var sid := StringName(str(s))
+			if Data.SKINS.has(sid):
+				result["skins_unlocked"].append(StringName(sid))
+	var skin_equipped_src: Variant = parsed_dict.get("skin_equipped", {})
+	if skin_equipped_src is Dictionary:
+		for mech_id in skin_equipped_src:
+			var sid2 := StringName(str(skin_equipped_src[mech_id]))
+			if Data.SKINS.has(sid2) and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+				result["skin_equipped"][StringName(str(mech_id))] = StringName(sid2)
+	var daily_boss_src: Variant = parsed_dict.get("daily_boss", {})
+	if daily_boss_src is Dictionary:
+		result["daily_boss"]["day"] = str(daily_boss_src.get("day", ""))
+		result["daily_boss"]["damage"] = maxi(int(daily_boss_src.get("damage", 0)), 0)
+		result["daily_boss"]["reward_claimed"] = int(daily_boss_src.get("reward_claimed", -1))
 	return result
 
 ## 反序列化任务存储（progress 只认任务表 key；claimed 只认该任务表档位）
@@ -640,4 +677,9 @@ func _default_data() -> Dictionary:
 		"guide_step": 0,
 		"guide_skipped": false,
 		"activity_claimed": [],
+		# v0.20：限定池保底 0 / 皮肤空 / 每日 BOSS 空
+		"limited_pity": 0,
+		"skins_unlocked": [],
+		"skin_equipped": {},
+		"daily_boss": { "day": "", "damage": 0, "reward_claimed": -1 },
 	}

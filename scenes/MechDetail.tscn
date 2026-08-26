@@ -91,6 +91,14 @@ theme_override_constants/separation = 6
 layout_mode = 2
 text = "前往装备界面"
 
+[node name="skin_title" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "—— 皮肤 ——"
+horizontal_alignment = 1
+
+[node name="skin_box" type="VBoxContainer" parent="root_box/scroll/content_box"]
+layout_mode = 2
+
 [node name="affinity_title" type="Label" parent="root_box/scroll/content_box"]
 layout_mode = 2
 text = "—— 好感度 ——"

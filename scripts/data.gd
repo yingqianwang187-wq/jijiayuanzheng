@@ -564,6 +564,39 @@ const STORY_LINES := {
 }
 
 # ------------------------------------------------------------------
+# 皮肤（设计文档 §10.6 X3，v0.20：纯外观无属性，占位色块；每机娘默认皮肤 + 已解锁皮肤）
+#   获取渠道（商城/活动/任务）后续批次接入；本表为可解锁皮肤（推荐值【待确认】）
+# ------------------------------------------------------------------
+const SKINS := {
+	&"skin_xiaoyu_red": { "mech_id": &"xiao_yu", "name": "绯红之刃" },
+	&"skin_alan_blue": { "mech_id": &"a_lan", "name": "深蓝磁轨" },
+	&"skin_xinglan_star": { "mech_id": &"xinglan", "name": "星辉炮手" },
+	&"skin_lian_steel": { "mech_id": &"lian", "name": "玄钢壁垒" },
+}
+const SKIN_DEFAULT_ID := &"default"          # 每机娘默认皮肤
+
+# ------------------------------------------------------------------
+# 每日 BOSS（设计文档 §10.7 X7，v0.20：7 天轮换、每日 1 次免费、伤害结算）
+#   按星期几（Time weekday 0~6）取配置；数值为推荐值【待确认】
+# ------------------------------------------------------------------
+const DAILY_BOSSES := [
+	{ "name": "暴走甲兽", "atk": 35, "hp": 2000, "def": 10, "spd": 5 },
+	{ "name": "失控重炮", "atk": 40, "hp": 2300, "def": 12, "spd": 6 },
+	{ "name": "机械蛛后", "atk": 45, "hp": 2600, "def": 13, "spd": 7 },
+	{ "name": "暴走铁骑", "atk": 50, "hp": 2900, "def": 15, "spd": 6 },
+	{ "name": "湮灭核心", "atk": 55, "hp": 3200, "def": 16, "spd": 8 },
+	{ "name": "天启机甲", "atk": 60, "hp": 3600, "def": 18, "spd": 7 },
+	{ "name": "终焉暴君", "atk": 70, "hp": 4200, "def": 20, "spd": 9 },
+]
+
+## 每日 BOSS 伤害档位奖励（按造成伤害门槛，取最高可达档；推荐值【待确认】）
+const DAILY_BOSS_REWARD_TIERS := [
+	{ "damage": 500, "reward": [ { "type": "gold", "amount": 500 } ] },
+	{ "damage": 1500, "reward": [ { "type": "gold", "amount": 1000 }, { "type": "diamond", "amount": 30 } ] },
+	{ "damage": 3000, "reward": [ { "type": "gold", "amount": 2000 }, { "type": "diamond", "amount": 50 }, { "type": "ticket", "amount": 1 } ] },
+]
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300
@@ -592,6 +625,17 @@ const SUMMON_POOLS := {
 		"name": "新手池",
 		"members": [&"xinglan", &"qianxia", &"lian", &"xiao_yu", &"a_lan"],
 		"first_ten_pity": &"xinglan",
+	},
+	&"limited": {
+		"name": "限定池",
+		"members": [
+			&"xiao_yu", &"a_lan", &"tong", &"ling", &"ying", &"ling2", &"ya", &"you",
+			&"qianxia", &"lian", &"yuejian", &"pan", &"li", &"lin", &"yuan", &"xi",
+			&"sun", &"shuang", &"li2", &"tang",
+			&"fei", &"xinglan", &"yue", &"jin", &"ming", &"ya2", &"cang", &"xuan", &"mu", &"luo",
+		],
+		"up_id": &"yue",        # 当前 SSR UP 机娘（设计文档 §4.2：岳/苍/冥轮换，推荐值【待确认】）
+		"up_rate": 0.50,        # SSR 中 50% 概率出 UP 机娘（推荐值）
 	},
 }
 

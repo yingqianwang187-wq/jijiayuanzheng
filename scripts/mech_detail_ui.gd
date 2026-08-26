@@ -32,6 +32,7 @@ const MainUI := preload("res://scripts/main_ui.gd")
 @onready var _skills_box: VBoxContainer = $root_box/scroll/content_box/skills_box
 @onready var _equip_box: HBoxContainer = $root_box/scroll/content_box/equip_box
 @onready var _equip_button: Button = $root_box/scroll/content_box/equip_button
+@onready var _skin_box: VBoxContainer = $root_box/scroll/content_box/skin_box
 @onready var _affinity_bar: ProgressBar = $root_box/scroll/content_box/affinity_row/affinity_bar
 @onready var _affinity_value_label: Label = $root_box/scroll/content_box/affinity_row/affinity_value_label
 @onready var _gift_button: Button = $root_box/scroll/content_box/gift_button
@@ -60,6 +61,7 @@ func _ready() -> void:
 	Contract.mech_star_updated.connect(_on_mech_star_updated)
 	Contract.affinity_changed.connect(_on_affinity_changed)
 	Contract.equipped_changed.connect(_on_equipped_changed)
+	Contract.skin_changed.connect(_on_skin_changed)
 	Contract.gold_changed.connect(_on_gold_changed)
 	Contract.fragments_updated.connect(_on_fragments_updated)
 	_back_button.pressed.connect(_on_back_pressed)
@@ -83,6 +85,7 @@ func _seed_initial_state() -> void:
 	_render_stats()
 	_build_skills()
 	_build_equip_slots()
+	_build_skin_section()
 	_refresh_affinity()
 	_refresh_upgrade_buttons()
 
@@ -119,6 +122,11 @@ func _on_affinity_changed(id: StringName, _value: int) -> void:
 func _on_equipped_changed(_equipped: Dictionary) -> void:
 	_build_equip_slots()
 	_render_stats()
+
+
+func _on_skin_changed(_unlocked: Array, _equipped: Dictionary) -> void:
+	# v0.20：皮肤解锁/穿戴变化
+	_build_skin_section()
 
 
 func _on_gold_changed(_value: int) -> void:
@@ -339,6 +347,66 @@ func _find_equip(inventory: Array, uid: StringName) -> Dictionary:
 		if StringName(str(eq.get("uid", ""))) == uid:
 			return eq
 	return {}
+
+
+## ------------------------------------------------------------------
+## 皮肤区（v0.20 §3.16 X3：纯外观无属性，占位色块；默认皮肤 + 已解锁皮肤）
+## 只读 Game.get_skin_info()（{unlocked, equipped}）；穿戴按钮只调 Game.equip_skin
+## ------------------------------------------------------------------
+func _build_skin_section() -> void:
+	for child in _skin_box.get_children():
+		_skin_box.remove_child(child)
+		child.queue_free()
+	var skin_info: Dictionary = Game.get_skin_info()
+	var equipped: Dictionary = skin_info.get("equipped", {})
+	var current: StringName = StringName(str(equipped.get(_mech_id, Data.SKIN_DEFAULT_ID)))
+	# 默认皮肤
+	_skin_box.add_child(_make_skin_row(Data.SKIN_DEFAULT_ID, "默认", current))
+	# 该机娘已解锁皮肤（Data.SKINS 过滤 mech_id）
+	var unlocked: Array = skin_info.get("unlocked", [])
+	for skin_id in unlocked:
+		var sid := StringName(skin_id)
+		var cfg: Dictionary = Data.SKINS.get(sid, {})
+		if StringName(str(cfg.get("mech_id", ""))) != _mech_id:
+			continue
+		_skin_box.add_child(_make_skin_row(sid, str(cfg.get("name", str(sid))), current))
+
+
+## 单行皮肤：占位色块 + 名称 + 穿戴状态 + 按钮
+func _make_skin_row(skin_id: StringName, display_name: String, current: StringName) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var color_block := ColorRect.new()
+	color_block.custom_minimum_size = Vector2(36, 28)
+	color_block.color = _skin_color(skin_id)
+	row.add_child(color_block)
+	var label := Label.new()
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.text = display_name
+	row.add_child(label)
+	var is_current: bool = StringName(str(skin_id)) == current
+	var btn := Button.new()
+	if is_current:
+		btn.text = "已穿戴"
+		btn.disabled = true
+	else:
+		btn.text = "穿戴"
+		btn.pressed.connect(_on_skin_pressed.bind(skin_id))
+	row.add_child(btn)
+	return row
+
+
+func _on_skin_pressed(skin_id: StringName) -> void:
+	# 结果由 skin_changed 信号回发
+	Game.equip_skin(_mech_id, skin_id)
+
+
+## 皮肤占位色块颜色（纯外观，按皮肤 id 稳定取色，非游戏数值）
+func _skin_color(skin_id: StringName) -> Color:
+	if skin_id == Data.SKIN_DEFAULT_ID:
+		return Color(0.45, 0.55, 0.65)
+	var h: float = float(abs(hash(String(skin_id))) % 360) / 360.0
+	return Color.from_hsv(h, 0.6, 0.8)
 
 
 ## ------------------------------------------------------------------

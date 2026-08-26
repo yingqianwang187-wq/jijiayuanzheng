@@ -22,8 +22,10 @@ extends Control
 @onready var _diamond_label: Label = $root_box/diamond_label
 @onready var _standard_button: Button = $root_box/pool_row/standard_button
 @onready var _novice_button: Button = $root_box/pool_row/novice_button
+@onready var _limited_button: Button = $root_box/pool_row/limited_button
 @onready var _cost_label: Label = $root_box/cost_label
 @onready var _pity_label: Label = $root_box/pity_label
+@onready var _limited_info_label: Label = $root_box/limited_info_label
 @onready var _single_button: Button = $root_box/summon_row/single_button
 @onready var _ten_button: Button = $root_box/summon_row/ten_button
 @onready var _result_box: VBoxContainer = $root_box/result_box
@@ -40,6 +42,7 @@ func _ready() -> void:
 	Contract.owned_mechs_updated.connect(_on_owned_mechs_updated)
 	_standard_button.pressed.connect(_on_pool_pressed.bind(&"standard"))
 	_novice_button.pressed.connect(_on_pool_pressed.bind(&"novice"))
+	_limited_button.pressed.connect(_on_pool_pressed.bind(&"limited"))
 	_single_button.pressed.connect(_on_summon_pressed.bind(1))
 	_ten_button.pressed.connect(_on_summon_pressed.bind(10))
 	_back_button.pressed.connect(_on_back_pressed)
@@ -93,6 +96,7 @@ func _on_back_pressed() -> void:
 func _refresh_pool_ui() -> void:
 	_standard_button.button_pressed = (_pool == &"standard")
 	_novice_button.button_pressed = (_pool == &"novice")
+	_limited_button.button_pressed = (_pool == &"limited")
 	var single_cost: int = Game.summon_cost(_pool, 1)
 	var ten_cost: int = Game.summon_cost(_pool, 10)
 	# 可用货币 = 钻石 + 召唤券 × 单券价值（契约 §3.8：1 券 = 300 钻 = 1 抽；
@@ -104,6 +108,15 @@ func _refresh_pool_ui() -> void:
 	_ten_button.text = _button_text("十连", ten_cost)
 	_single_button.disabled = afford < single_cost
 	_ten_button.disabled = afford < ten_cost
+	# 限定池 UP 信息（Data.SUMMON_POOLS.limited：up_id / up_rate；独立保底 limited_pity）
+	if _pool == &"limited":
+		var limited_cfg: Dictionary = Data.SUMMON_POOLS.get(&"limited", {})
+		var up_id := StringName(str(limited_cfg.get("up_id", "")))
+		var up_name: String = str(Data.MECH_GIRLS.get(up_id, {}).get("name", str(up_id)))
+		var up_rate: float = float(limited_cfg.get("up_rate", 0.0))
+		_limited_info_label.text = "限定UP：%s（SSR 中 %d%% 概率）｜独立保底" % [up_name, roundi(up_rate * 100.0)]
+	else:
+		_limited_info_label.text = ""
 	var pity: Dictionary = Game.summon_pity_info(_pool)
 	_pity_label.text = "SSR 保底进度：%d/%d（再 %d 抽必出）" % [
 		int(pity.get("progress", 0)),

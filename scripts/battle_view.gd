@@ -20,11 +20,12 @@
 #          集合才能展示状态图标（显示层聚合，不修改任何数值）。
 # 伤害统计：战斗结束时（battle_star / level_cleared / battle_failed）只读 Game.battle.mechs
 #          的 dmg_dealt / heal_done 汇总展示（Game 累计，UI 只显示）。
-# 模式适配（v0.13/v0.16）：按 Game.battle.mode 三分支——&"story"（主线标题"第 N 关 · 战斗"、
+# 模式适配（v0.13/v0.16/v0.20）：按 Game.battle.mode 四分支——&"story"（主线标题"第 N 关 · 战斗"、
 #          重试 start_battle）；&"dungeon"（标题"副本名·档位"、重试 start_dungeon、通关反馈
 #          dungeon_reward、体力不足隐藏重试）；&"tower"（标题"第 N 层 · 爬塔"、层数读
 #          dungeon_ctx.layer（B 实际字段）、重试 start_tower、通关反馈 tower_changed、
-#          当日满上限隐藏重试）。
+#          当日满上限隐藏重试）；&"boss"（标题"每日BOSS · 当日名"、每日 1 次不重试、
+#          结算反馈 daily_boss_changed 显示伤害）。
 # ==================================================================
 extends Control
 
@@ -51,7 +52,7 @@ var _cell_statuses: Dictionary = {}         # id -> {status_id: duration}
 var _unit_names: Dictionary = {}            # id -> 显示名（提示用）
 var _battle_level: int = 1
 var _retry_level: int = 1
-var _battle_mode: StringName = &"story"     # &"story"（主线）/ &"dungeon"（秘境）/ &"tower"（爬塔）
+var _battle_mode: StringName = &"story"     # &"story"（主线）/ &"dungeon"（秘境）/ &"tower"（爬塔）/ &"boss"（每日BOSS）
 var _dungeon_kind: StringName = &""         # 秘境副本 kind（dungeon_ctx）
 var _dungeon_tier: int = 0                  # 秘境档位（dungeon_ctx）
 var _tower_layer: int = 1                   # 爬塔层数（dungeon_ctx.layer，B 实际字段）
@@ -74,6 +75,7 @@ func _ready() -> void:
 	Contract.battle_failed.connect(_on_battle_failed)
 	Contract.dungeon_reward.connect(_on_dungeon_reward)
 	Contract.tower_changed.connect(_on_tower_changed)
+	Contract.daily_boss_changed.connect(_on_daily_boss_changed)
 	_accelerate_button.toggled.connect(_on_accelerate_toggled)
 	_retry_button.pressed.connect(_on_retry_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
@@ -90,8 +92,8 @@ func _seed_initial_state() -> void:
 	if not Game.battle.active:
 		_status_label.text = "未在战斗中，请点击开始战斗"
 		return
-	# v0.13/v0.16：按模式三分支——秘境显示"副本名·档位"、爬塔显示"第 N 层 · 爬塔"、
-	# 主线保持"第 N 关 · 战斗"
+	# v0.13/v0.16/v0.20：按模式四分支——秘境"副本名·档位"、爬塔"第 N 层 · 爬塔"、
+	# 每日BOSS"每日BOSS · 当日名"、主线"第 N 关 · 战斗"
 	_battle_mode = Game.battle.get("mode", &"story")
 	if _battle_mode == &"dungeon":
 		var ctx: Dictionary = Game.battle.get("dungeon_ctx", {})
@@ -103,6 +105,11 @@ func _seed_initial_state() -> void:
 		var tctx: Dictionary = Game.battle.get("dungeon_ctx", {})
 		_tower_layer = int(tctx.get("layer", 1))
 		_title_label.text = "第 %d 层 · 爬塔" % _tower_layer
+	elif _battle_mode == &"boss":
+		# v0.20：每日BOSS（Data.DAILY_BOSSES 按星期几轮换，读当日配置名）
+		var weekday: int = int(Time.get_date_dict_from_system()["weekday"])
+		var boss_cfg: Dictionary = Data.DAILY_BOSSES[weekday]
+		_title_label.text = "每日BOSS · %s" % str(boss_cfg.get("name", "?"))
 	else:
 		_battle_level = int(Game.battle.level)
 		_title_label.text = "第 %d 关 · 战斗" % _battle_level
@@ -209,6 +216,12 @@ func _on_battle_failed(level: int) -> void:
 			_retry_button.visible = false
 			_show_battle_stats()
 			return
+	# v0.20：每日BOSS 失败/超时——每日 1 次不重试（start_daily_boss 当日已打校验静默返回）
+	elif _battle_mode == &"boss":
+		_status_label.text = "战斗结束（每日BOSS 每日仅 1 次，伤害已记录）"
+		_retry_button.visible = false
+		_show_battle_stats()
+		return
 	_status_label.text = "战斗失败！点击重试"
 	_retry_button.visible = true
 	_show_battle_stats()
@@ -217,6 +230,11 @@ func _on_battle_failed(level: int) -> void:
 func _on_tower_changed(level: int, _daily_count: int) -> void:
 	# v0.16：爬塔通关反馈（tower 战斗胜利后由 Game 发出）
 	_status_label.text = "第 %d 层通关！" % level
+
+
+func _on_daily_boss_changed(damage: int, _day: String) -> void:
+	# v0.20：每日BOSS 结算反馈（战斗结束按伤害结算后由 Game 发出）
+	_status_label.text = "每日BOSS：造成伤害 %d！" % damage
 
 
 func _on_dungeon_reward(kind: StringName, tier: int, rewards: Dictionary) -> void:
