@@ -14,6 +14,10 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.18（阶段 4 第三批：新手引导+指挥官等级+剧情回顾+活动+升级机制调整，设计文档 v0.21）：
+#       新增信号 commander_changed / activity_changed / guide_changed；
+#       升级机制：经验+金币足够时自动升级（_try_auto_upgrade），手动入口保留；
+#       术语新增 guide / commander / activity。
 #   v0.17（阶段 4 第二批：图鉴+成就+称号+好感，设计文档 v0.21）：新增信号 collection_changed /
 #       achievement_changed / title_changed / affinity_changed；
 #       术语新增 collection / achievement / title / affinity。
@@ -66,7 +70,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.17"
+const CONTRACT_VERSION := "v0.18"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -148,6 +152,11 @@ const TERM_ACHIEVEMENT := "achievement"    # 成就（目标型一次性奖励�
 const TERM_TITLE       := "title"          # 称号（达成解锁、可佩戴带少量属性）
 const TERM_AFFINITY    := "affinity"       # 好感度（送礼物/出战涨好感；满级属性加成）
 
+# ---- 阶段 4 引导/指挥官/活动术语（设计文档 §10.11 / §4.7 / §10.3，v0.18）----
+const TERM_GUIDE      := "guide"        # 新手引导（6 步核心循环，可跳过/可重看）
+const TERM_COMMANDER  := "commander"    # 指挥官（经验/等级；每 5 级送免费十连）
+const TERM_ACTIVITY   := "activity"     # 活动（本地限时任务，达成领奖一次性）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -211,3 +220,8 @@ signal collection_changed(count: int)                                         # 
 signal achievement_changed(achievements: Array)                               # 成就状态变化（达成/领奖后）
 signal title_changed(unlocked: Array, equipped: StringName)                   # 称号变化（解锁/佩戴后）
 signal affinity_changed(id: StringName, value: int)                           # 好感度变化（送礼物/出战胜利后）
+
+# ---- 阶段 4 引导/指挥官/活动信号（v0.18）----
+signal commander_changed(level: int, exp: int)                                # 指挥官等级/经验变化
+signal activity_changed(activities: Array)                                    # 活动列表变化（达成/领奖后）
+signal guide_changed(step: int)                                               # 新手引导步数变化（推进/跳过/完成）

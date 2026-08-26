@@ -2918,7 +2918,7 @@ func claim_collection_reward(tier: int) -> void:
 ## ================================================================
 ## v0.17：成就（契约 §3.14 / 设计文档 §10.13，12 个）
 ## ================================================================
-## 成就当前进度（type: story_cleared / summon_count / power / tower / collection）
+## 成就/称号当前进度（type: story_cleared / summon_count / power / tower / collection / dungeon）
 func _achievement_progress(type: String) -> int:
 	match type:
 		"story_cleared":
@@ -2931,6 +2931,12 @@ func _achievement_progress(type: String) -> int:
 			return tower_highest
 		"collection":
 			return _collection_count()
+		"dungeon":
+			# 已通关秘境档数（遍历各副本 kind 的已通关 tiers 计数；供"秘境达人"等条件判定）
+			var total := 0
+			for kind in dungeon_cleared:
+				total += dungeon_cleared[kind].size()
+			return total
 	return 0
 
 ## 成就列表（含 progress / done / claimed，供 UI 与信号）
