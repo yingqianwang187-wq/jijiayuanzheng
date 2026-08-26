@@ -64,6 +64,8 @@ const PAGE_COLLECTION := 5
 @onready var _expedition_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/expedition_button
 @onready var _survival_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/survival_button
 @onready var _home_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/home_button
+@onready var _spin_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/spin_button
+@onready var _festival_button: Button = $shell_box/page_container/city_page/city_box/activity_row/festival_button
 # 右上角常驻（所有页面可点）
 @onready var _settings_button: Button = $shell_box/top_bar/top_row/settings_button
 @onready var _save_button: Button = $shell_box/top_bar/top_row/save_button
@@ -140,6 +142,7 @@ func _ready() -> void:
 	_task_button.pressed.connect(_on_task_pressed)
 	_sign_button.pressed.connect(_on_sign_pressed)
 	_activity_button.pressed.connect(_on_activity_pressed)
+	_festival_button.pressed.connect(_on_festival_pressed)
 	_gacha_button.pressed.connect(_on_gacha_pressed)
 	_shop_button.pressed.connect(_on_shop_pressed)
 	_craft_button.pressed.connect(_on_craft_pressed)
@@ -148,6 +151,7 @@ func _ready() -> void:
 	_expedition_button.pressed.connect(_on_expedition_pressed)
 	_survival_button.pressed.connect(_on_survival_pressed)
 	_home_button.pressed.connect(_on_home_pressed)
+	_spin_button.pressed.connect(_on_spin_pressed)
 	# 主线页
 	_challenge_button.pressed.connect(_on_enter_battle_pressed)
 	# 机娘页筛选
@@ -411,6 +415,16 @@ func _on_survival_pressed() -> void:
 func _on_home_pressed() -> void:
 	# v0.21：家园互动覆盖层
 	_open_overlay("res://scenes/Home.tscn")
+
+
+func _on_spin_pressed() -> void:
+	# v0.22：日常转盘覆盖层
+	_open_overlay("res://scenes/Spin.tscn")
+
+
+func _on_festival_pressed() -> void:
+	# v0.22：节日活动覆盖层
+	_open_overlay("res://scenes/Festival.tscn")
 
 
 func _on_enter_battle_pressed() -> void:

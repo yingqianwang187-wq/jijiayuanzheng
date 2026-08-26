@@ -133,6 +133,11 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "活动"
 
+[node name="festival_button" type="Button" parent="shell_box/page_container/city_page/city_box/activity_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "节日"
+
 [node name="building_title" type="Label" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
 text = "—— 建筑 ——"
@@ -194,6 +199,12 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "家园"
+
+[node name="spin_button" type="Button" parent="shell_box/page_container/city_page/city_box/home_feature_row"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "转盘"
 
 [node name="formation_page" parent="shell_box/page_container" instance=ExtResource("2_fmt")]
 visible = false

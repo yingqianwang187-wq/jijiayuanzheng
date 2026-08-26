@@ -1,0 +1,71 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/spin_ui.gd" id="1_script"]
+
+[node name="Spin" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.07, 0.09, 0.13, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 48.0
+offset_top = 24.0
+offset_right = -48.0
+offset_bottom = -24.0
+theme_override_constants/separation = 8
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "日常转盘"
+horizontal_alignment = 1
+
+[node name="diamond_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "钻石：0"
+horizontal_alignment = 1
+
+[node name="hint_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "每日 1 次免费；之后每次 100 钻石"
+horizontal_alignment = 1
+
+[node name="spin_button" type="Button" parent="root_box"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+text = "转 1 次"
+
+[node name="result_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 奖励表 ——"
+horizontal_alignment = 1
+
+[node name="reward_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="message_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="back_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "返回"
