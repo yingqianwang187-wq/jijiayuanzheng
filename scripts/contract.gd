@@ -14,6 +14,9 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.17（阶段 4 第二批：图鉴+成就+称号+好感，设计文档 v0.21）：新增信号 collection_changed /
+#       achievement_changed / title_changed / affinity_changed；
+#       术语新增 collection / achievement / title / affinity。
 #   v0.16（阶段 4 第一批：爬塔+签到+每日/周任务+新手7日，设计文档 v0.20）：新增信号
 #       tower_changed / sign_changed / task_changed / novice_changed；
 #       术语新增 tower / sign / task / novice。
@@ -63,7 +66,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.16"
+const CONTRACT_VERSION := "v0.17"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -139,6 +142,12 @@ const TERM_SIGN    := "sign"           # 签到（每日金币+钻石；累计 7
 const TERM_TASK    := "task"           # 任务（每日 8 任务 100 活跃度 + 每周 300 活跃度，档位领奖）
 const TERM_NOVICE  := "novice"         # 新手福利（7 日任务链，每天 3~4 目标）
 
+# ---- 阶段 4 图鉴/成就/称号/好感术语（设计文档 §10.4 / §10.6 / §10.13，v0.17）----
+const TERM_COLLECTION  := "collection"     # 图鉴（30 位收集；已拥有彩色/未拥有灰影 + 进度奖励）
+const TERM_ACHIEVEMENT := "achievement"    # 成就（目标型一次性奖励）
+const TERM_TITLE       := "title"          # 称号（达成解锁、可佩戴带少量属性）
+const TERM_AFFINITY    := "affinity"       # 好感度（送礼物/出战涨好感；满级属性加成）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -196,3 +205,9 @@ signal tower_changed(level: int, daily_count: int)                            # 
 signal sign_changed(days: int)                                                # 签到变化（连续天数）
 signal task_changed(daily: Dictionary, weekly: Dictionary)                    # 任务进度变化（日/周 {progress, claimed}）
 signal novice_changed(day: int, progress: Dictionary, claimed: Array)         # 新手 7 日任务变化
+
+# ---- 阶段 4 图鉴/成就/称号/好感信号（v0.17）----
+signal collection_changed(count: int)                                         # 图鉴收集进度变化（抽到新机娘后）
+signal achievement_changed(achievements: Array)                               # 成就状态变化（达成/领奖后）
+signal title_changed(unlocked: Array, equipped: StringName)                   # 称号变化（解锁/佩戴后）
+signal affinity_changed(id: StringName, value: int)                           # 好感度变化（送礼物/出战胜利后）
