@@ -1,48 +1,36 @@
 # ==================================================================
 # scripts/main_ui.gd —— 主界面脚本（挂在 scenes/Main.tscn 根节点）
 # 作者   ：C（画面 + 界面）
-# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8 / §3.9 / §3.10（v0.13）、scripts/contract.gd（只读）
+# 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.7 / §3.8 / §3.9 / §3.10 / §3.14（v0.17）、
+#          scripts/contract.gd（只读）、docs/设计文档.md v0.21 §1.6 ①⑨
 # 职责   ：主界面纯显示层。
-#          - 连接信号：gold_changed / mech_girl_updated / mech_exp_updated /
-#            level_cleared / level_progress_changed / idle_rewards_updated /
-#            exp_balance_updated / diamond_changed / fragments_updated / owned_mechs_updated /
-#            battle_star / mech_star_updated / stamina_changed / box_count_changed /
-#            bag_updated / box_opened
-#          - 按钮只调入口（契约 §3.6）：升级 → Game.upgrade(id)；升星 → Game.upgrade_star(id)；
-#            收获 → Game.collect_idle()；挑战 → Game.start_battle(Game.get_next_level())（v0.9 主线
-#            不可选关）+ 切到 Battle.tscn；开箱 → Game.open_box()（结果经 box_opened 显示）；
-#            秘境/背包/抽卡/布阵 → 切到 Dungeon.tscn / Bag.tscn / Gacha.tscn / Formation.tscn；
-#            手动存档 → Save.save_game()
+#          - 连接信号：gold_changed / mech_girl_updated / level_cleared /
+#            level_progress_changed / idle_rewards_updated / exp_balance_updated /
+#            diamond_changed / fragments_updated / owned_mechs_updated / battle_star /
+#            mech_star_updated / stamina_changed / box_count_changed / bag_updated /
+#            box_opened / sign_changed / collection_changed
+#          - 按钮只调入口（契约 §3.6）：收获 → Game.collect_idle()；挑战 → Game.start_battle(
+#            Game.get_next_level())（v0.9 主线不可选关）+ 切 Battle.tscn；开箱 → Game.open_box()；
+#            秘境/背包/装备/商城/设置/爬塔/任务/新手/抽卡/布阵 → 切对应场景；
+#            签到 → Game.sign_in()；手动存档 → Save.save_game()
+#          - 机娘列表（v0.17 §1.6 ⑨）：卡片式（头像色块 + 名 + 星级 + 战力），点击卡片 →
+#            进 MechDetail.tscn（mech_id 经 static pending_mech_id 传递）；升级/升星按钮
+#            迁移至详情页（§1.6 ⑨ 布局取舍，主界面保持纯卡片展示）
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          一切更新值以 Game 信号参数为准，UI 不缓存游戏数值。
-# 星级/升星（v0.10）：机娘行显示 ★N（Game.mech_stars 只读）与等级上限（Game.get_level_cap）；
-#          升星按钮显示所需碎片（Game.star_cost 只读：fragments 所需 / level_required 解锁等级），
-#          碎片不足 / 未满级解锁则置灰并在 message_label 提示；点按调 Game.upgrade_star(id)，
-#          结果经 mech_star_updated / fragments_updated 信号回发刷新。
-# 主线（v0.9）：只显示并挑战"当前最高未通关的下一关"（Game.get_next_level() 只读入口），
-#          无选关列表、无扫荡入口；首通奖励 = 金币 + 钻石 + 小钰碎片（普通 1 片 / BOSS 3 片，
-#          Data.XIAOYU_FRAGMENT_*，走 fragments_updated 信号），通关后随 last_clear 快照展示。
-# 机娘列表：只显示已拥有的机娘（契约 §3.8 v0.7：上阵/养成 = 拥有的机娘），
-#          名单来自只读入口 Game.get_owned_mechs()（按 Data 顺序）；
-#          owned_mechs_updated / fragments_updated 到达时重建列表。
 # 首屏说明：本场景会从战斗场景切回（启动时那批初始信号已错过，Game 不重发），
 #          故 _ready 对 Game 公开状态做一次【只读快照】铺首屏（契约 §3.1"首屏铺底例外"），
 #          此后一切更新一律走信号。
 # 右上角余额（契约 §3.7，v0.6）：金币余额 = 已入账金币 + 待收获金币；
 #          经验余额 = 全局经验余额 + 待收获经验。随 gold_changed / idle_rewards_updated /
-#          exp_balance_updated 与首屏快照刷新；刷新时只读 Game 公开状态（信号到达时
-#          Game 数值已更新完毕，读值与信号参数一致）。
-# 机娘显示：主界面无战斗概念，机娘始终按满血显示；等级 / 攻击以信号参数为准，
-#          满血值由 Data 静态表按等级换算（与 Game._mech_stats 同一公式、同一数据源）。
-# 经验显示：exp / exp_next 以 mech_exp_updated 信号参数为准；首屏快照时 exp 读
-#          Game.mech_exp，exp_next 用只读入口 Game.upgrade_exp_cost(id)（契约 §3.6 v0.5）。
-# 升级禁用：v0.5 起用只读入口 Game.upgrade_cost(id) / Game.upgrade_exp_cost(id) 判断
-#          金币/经验是否足够（不再自行换算费用）；v0.6 经验判定 = 个人经验条 + 全局经验
-#          余额合计（与 Game.upgrade 一致）；不足时按钮置灰并在 message_label 提示原因；
-#          在 gold_changed / mech_exp_updated / mech_girl_updated / exp_balance_updated
-#          信号到达时刷新全部按钮。
+#          exp_balance_updated 与首屏快照刷新。
+# 收集计数（v0.17 §3.14）：顶部"机娘收集 N/30"，数据源 Game.get_collection_info() 只读 +
+#          collection_changed / owned_mechs_updated 信号。
 # ==================================================================
 extends Control
+
+## 跨场景导航状态：机娘详情页当前要展示的机娘 id（UI 导航状态，非游戏数值）
+static var pending_mech_id: StringName = &""
 
 ## ---- 节点引用（与 scenes/Main.tscn 结构一一对应）----
 @onready var _gold_label: Label = $root_box/gold_label
@@ -53,7 +41,8 @@ extends Control
 @onready var _diamond_label: Label = $root_box/balance_row/diamond_label
 @onready var _stamina_label: Label = $root_box/balance_row/stamina_label
 @onready var _challenge_button: Button = $root_box/challenge_button
-@onready var _mech_box: VBoxContainer = $root_box/mech_box
+@onready var _mech_count_label: Label = $root_box/mech_count_label
+@onready var _mech_box: ScrollContainer = $root_box/mech_box
 @onready var _last_clear_label: Label = $root_box/last_clear_label
 @onready var _message_label: Label = $root_box/message_label
 @onready var _dungeon_button: Button = $root_box/feature_row/dungeon_button
@@ -69,15 +58,15 @@ extends Control
 @onready var _save_button: Button = $root_box/bottom_row/save_button
 @onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
 @onready var _formation_button: Button = $root_box/bottom_row/formation_button
+@onready var _collection_button: Button = $root_box/bottom_row/collection_button
 
-## ---- UI 内部状态（仅行引用，不含任何游戏数值）----
-var _mech_rows: Dictionary = {}      # StringName -> { stats_label, exp_label, upgrade_button }
+## ---- UI 内部状态（仅卡片引用，不含任何游戏数值）----
+var _mech_cards: Dictionary = {}      # StringName -> { name_label, info_label }
 
 
 func _ready() -> void:
 	Contract.gold_changed.connect(_on_gold_changed)
 	Contract.mech_girl_updated.connect(_on_mech_girl_updated)
-	Contract.mech_exp_updated.connect(_on_mech_exp_updated)
 	Contract.level_cleared.connect(_on_level_cleared)
 	Contract.level_progress_changed.connect(_on_level_progress_changed)
 	Contract.idle_rewards_updated.connect(_on_idle_rewards_updated)
@@ -92,11 +81,13 @@ func _ready() -> void:
 	Contract.bag_updated.connect(_on_bag_updated)
 	Contract.box_opened.connect(_on_box_opened)
 	Contract.sign_changed.connect(_on_sign_changed)
+	Contract.collection_changed.connect(_on_collection_changed)
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_challenge_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
 	_gacha_button.pressed.connect(_on_gacha_pressed)
 	_formation_button.pressed.connect(_on_formation_pressed)
+	_collection_button.pressed.connect(_on_collection_pressed)
 	_dungeon_button.pressed.connect(_on_dungeon_pressed)
 	_bag_button.pressed.connect(_on_bag_pressed)
 	_box_button.pressed.connect(_on_box_pressed)
@@ -107,17 +98,16 @@ func _ready() -> void:
 	_task_button.pressed.connect(_on_task_pressed)
 	_novice_button.pressed.connect(_on_novice_pressed)
 	_sign_button.pressed.connect(_on_sign_pressed)
-	_rebuild_mech_rows()
+	_rebuild_mech_cards()
 	_seed_initial_state()
 
 
 ## ------------------------------------------------------------------
-## 信号处理（只刷新显示；余额 / 升级按钮随相关信号一并刷新）
+## 信号处理（只刷新显示；余额随相关信号一并刷新）
 ## ------------------------------------------------------------------
 func _on_gold_changed(value: int) -> void:
 	_gold_label.text = "金币：%d" % value
 	_refresh_balance()
-	_refresh_upgrade_buttons()
 
 
 func _on_idle_rewards_updated(gold: int, exp: int) -> void:
@@ -126,59 +116,50 @@ func _on_idle_rewards_updated(gold: int, exp: int) -> void:
 	_refresh_balance()
 
 
-func _on_mech_girl_updated(id: StringName, _hp: int, atk: int, level: int) -> void:
-	# 主界面无战斗概念，机娘始终按满血显示；等级 / 攻击以信号为准（见文件头说明）
-	_render_mech_row(id, level, atk)
-	_refresh_upgrade_buttons()
-
-
-func _on_mech_exp_updated(id: StringName, exp: int, exp_next: int) -> void:
-	_render_mech_exp(id, exp, exp_next)
-	_refresh_upgrade_buttons()
+func _on_mech_girl_updated(id: StringName, _hp: int, _atk: int, _level: int) -> void:
+	# 机娘属性/战力变化 → 刷新卡片（战力读 Game.get_power 只读，信号到达时 Game 已更新）
+	_render_mech_card(id)
 
 
 func _on_exp_balance_updated(_balance: int) -> void:
-	# v0.6：全局经验余额变化（挂机收获入账 / 升级补足扣减）
 	_refresh_balance()
-	_refresh_upgrade_buttons()
 
 
 func _on_diamond_changed(value: int) -> void:
-	# v0.7：钻石变化（首通奖励 / 抽卡消耗）
 	_diamond_label.text = "钻石：%d" % value
 
 
 func _on_fragments_updated(_id: StringName, _count: int) -> void:
-	# v0.7：碎片变化（抽到重复机娘转化）——刷新机娘列表（只读；列表本身可能不变）
-	_rebuild_mech_rows()
+	# v0.7：碎片变化——刷新机娘列表（列表本身可能不变；升星入口已迁详情页）
+	_rebuild_mech_cards()
 
 
 func _on_owned_mechs_updated(_ids: Array) -> void:
-	# v0.7：拥有列表变化（抽到新机娘）——重建机娘列表（新机娘入列）
-	_rebuild_mech_rows()
+	# v0.7：拥有列表变化（抽到新机娘）——重建机娘卡片 + 收集计数
+	_rebuild_mech_cards()
+	_refresh_mech_count()
 
 
 func _on_mech_star_updated(id: StringName, _star: int, _level_cap: int) -> void:
-	# v0.10：机娘升星——刷新星级、等级上限/属性、升星按钮与提示
-	_render_star(id)
-	var level: int = int(Game.mech_levels.get(id, 1))
-	_render_mech_row(id, level, _calc_atk(id, level))
-	_refresh_upgrade_buttons()
+	# v0.10：机娘升星——刷新卡片（星级/战力变化）
+	_render_mech_card(id)
+
+
+func _on_collection_changed(_count: int) -> void:
+	# v0.17：图鉴收集进度变化
+	_refresh_mech_count()
 
 
 func _on_stamina_changed(value: int) -> void:
-	# v0.13：体力变化（恢复结算/秘境消耗/买体力）
 	_stamina_label.text = "体力 %d/%d" % [value, Data.STAMINA_MAX]
 
 
 func _on_box_count_changed(count: int) -> void:
-	# v0.13：待开箱数变化
 	_box_button.text = "开箱（%d）" % count
 	_box_button.disabled = count <= 0
 
 
 func _on_bag_updated(_items: Dictionary, _capacity: int) -> void:
-	# v0.13：背包变化（主界面无背包展示，预留；背包详情在 Bag 场景）
 	pass
 
 
@@ -208,12 +189,10 @@ func _on_level_cleared(level: int, first_clear: bool) -> void:
 
 
 func _on_battle_star(star: int) -> void:
-	# v0.8：星级评价（战斗场景发出的信号主界面通常收不到，重入时由快照 last_clear 展示）
 	_message_label.text = "本关评价：%d 星！" % star
 
 
 func _on_level_progress_changed(_level: int) -> void:
-	# v0.9：主线不可选关——刷新"挑战第 N 关"按钮
 	_refresh_challenge()
 
 
@@ -221,12 +200,10 @@ func _on_level_progress_changed(_level: int) -> void:
 ## 按钮（只调契约 §3.6 入口）
 ## ------------------------------------------------------------------
 func _on_collect_pressed() -> void:
-	# 结果由 gold_changed / exp_balance_updated / idle_rewards_updated 信号回发，不依赖返回值
 	Game.collect_idle()
 
 
 func _on_enter_battle_pressed() -> void:
-	# v0.9：主线只挑战"当前最高未通关的下一关"（Game 校验，不可选关）
 	var level: int = Game.get_next_level()
 	if level < 1 or level > Data.MAX_LEVEL:
 		_message_label.text = "主线已全部通关"
@@ -241,67 +218,59 @@ func _on_save_pressed() -> void:
 
 
 func _on_gacha_pressed() -> void:
-	# v0.7：进入抽卡界面（阶段 1）
 	get_tree().change_scene_to_file("res://scenes/Gacha.tscn")
 
 
 func _on_formation_pressed() -> void:
-	# v0.8：进入布阵界面（战斗 2.0）
 	get_tree().change_scene_to_file("res://scenes/Formation.tscn")
 
 
+func _on_collection_pressed() -> void:
+	# v0.17：进入图鉴界面
+	get_tree().change_scene_to_file("res://scenes/Collection.tscn")
+
+
 func _on_dungeon_pressed() -> void:
-	# v0.13：进入秘境界面
 	get_tree().change_scene_to_file("res://scenes/Dungeon.tscn")
 
 
 func _on_bag_pressed() -> void:
-	# v0.13：进入背包界面
 	get_tree().change_scene_to_file("res://scenes/Bag.tscn")
 
 
 func _on_box_pressed() -> void:
-	# v0.13：开 1 个宝箱（结果由 box_opened 信号回发显示到 message_label）
 	Game.open_box()
 
 
 func _on_equipment_pressed() -> void:
-	# v0.14：进入装备界面
 	get_tree().change_scene_to_file("res://scenes/Equipment.tscn")
 
 
 func _on_shop_pressed() -> void:
-	# v0.15：进入商城界面
 	get_tree().change_scene_to_file("res://scenes/Shop.tscn")
 
 
 func _on_settings_pressed() -> void:
-	# v0.15：进入设置界面
 	get_tree().change_scene_to_file("res://scenes/Settings.tscn")
 
 
 func _on_tower_pressed() -> void:
-	# v0.16：进入爬塔界面
 	get_tree().change_scene_to_file("res://scenes/Tower.tscn")
 
 
 func _on_task_pressed() -> void:
-	# v0.16：进入任务界面
 	get_tree().change_scene_to_file("res://scenes/Task.tscn")
 
 
 func _on_novice_pressed() -> void:
-	# v0.16：进入新手福利界面
 	get_tree().change_scene_to_file("res://scenes/Novice.tscn")
 
 
 func _on_sign_pressed() -> void:
-	# v0.16：每日签到（结果由 sign_changed + 货币信号回发）
 	Game.sign_in()
 
 
 func _on_sign_changed(days: int) -> void:
-	# v0.16：签到反馈 + 刷新按钮状态
 	if days % 7 == 0:
 		_message_label.text = "签到成功！连续 %d 天，满 7 天额外奖励！" % days
 	else:
@@ -310,7 +279,6 @@ func _on_sign_changed(days: int) -> void:
 
 
 func _refresh_sign_button() -> void:
-	# 只读 get_sign_info()：显示连续天数；今日已签则禁用
 	var info: Dictionary = Game.get_sign_info()
 	var days: int = int(info.get("days", 0))
 	if bool(info.get("today_signed", false)):
@@ -323,7 +291,6 @@ func _refresh_sign_button() -> void:
 
 ## ------------------------------------------------------------------
 ## 右上角余额（契约 §3.7，v0.6）：金币余额 = 已入账 + 待收获；经验余额 = 全局余额 + 待收获
-## 刷新时机：gold_changed / idle_rewards_updated / exp_balance_updated / 首屏快照
 ## ------------------------------------------------------------------
 func _refresh_balance() -> void:
 	_gold_balance_label.text = "金币 %s (+%d)" % [_format_num(int(Game.gold)), roundi(Game.idle_pending)]
@@ -359,187 +326,92 @@ func _refresh_challenge() -> void:
 
 
 ## ------------------------------------------------------------------
-## 机娘列表（只显示已拥有的机娘；名单来自只读入口 Game.get_owned_mechs()，
-## 按 Data 顺序；v0.7 上阵/养成 = 拥有的机娘）
-## 一行 = 星级+名字 + 状态（Lv/上限/攻/血）+ 经验（exp/exp_next）+ 升级 + 升星按钮
+## 机娘列表（v0.17 §1.6 ⑨ 卡片式）：头像色块 + 名字（★星级）+ 职业·稀有度 + 战力；
+## 点击卡片 → MechDetail.tscn（mech_id 经 static pending_mech_id 传递）；
+## 升级/升星按钮已迁移至详情页（本列表保持纯卡片展示）。
+## 名单来自只读入口 Game.get_owned_mechs()（按 Data 顺序）；
 ## 重建时机：_ready 首屏 / owned_mechs_updated / fragments_updated
 ## ------------------------------------------------------------------
-func _rebuild_mech_rows() -> void:
+func _rebuild_mech_cards() -> void:
 	for child in _mech_box.get_children():
 		_mech_box.remove_child(child)
 		child.queue_free()
-	_mech_rows.clear()
-	for id in Game.get_owned_mechs():
-		var cfg: Dictionary = Data.MECH_GIRLS[id]
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 6)
-		var name_label := Label.new()
-		name_label.text = str(cfg.get("name", str(id)))
-		name_label.custom_minimum_size = Vector2(120, 0)
-		var stats_label := Label.new()
-		stats_label.text = "Lv.-/- 攻- 血 -/-"
-		stats_label.custom_minimum_size = Vector2(200, 0)
-		var exp_label := Label.new()
-		exp_label.text = "经验 -/-"
-		exp_label.custom_minimum_size = Vector2(120, 0)
-		var upgrade_button := Button.new()
-		upgrade_button.text = "升级"
-		upgrade_button.pressed.connect(_on_upgrade_pressed.bind(id))
-		var star_button := Button.new()
-		star_button.text = "升星"
-		star_button.pressed.connect(_on_star_pressed.bind(id))
-		row.add_child(name_label)
-		row.add_child(stats_label)
-		row.add_child(exp_label)
-		row.add_child(upgrade_button)
-		row.add_child(star_button)
-		_mech_box.add_child(row)
-		_mech_rows[id] = { "name_label": name_label, "stats_label": stats_label, "exp_label": exp_label, "upgrade_button": upgrade_button, "star_button": star_button, "star_reason": "" }
-	# 重建后补渲染全部行（星级/属性/经验），避免初始信号（owned_mechs_updated 等）重建后显示占位
-	_render_all_rows()
-	_refresh_upgrade_buttons()
+	_mech_cards.clear()
+	var inner := VBoxContainer.new()
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.add_theme_constant_override("separation", 6)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	for mech_id in Game.get_owned_mechs():
+		grid.add_child(_make_mech_card(mech_id))
+	inner.add_child(grid)
+	_mech_box.add_child(inner)
 
 
-## 渲染全部机娘行：星级 / 属性 / 经验（读 Game 公开状态与只读入口）
-func _render_all_rows() -> void:
-	for id in _mech_rows:
-		_render_star(id)
-		var level: int = int(Game.mech_levels.get(id, 1))
-		_render_mech_row(id, level, _calc_atk(id, level))
-		var exp: int = int(Game.mech_exp.get(id, 0))
-		_render_mech_exp(id, exp, Game.upgrade_exp_cost(id))
+func _make_mech_card(mech_id: StringName) -> Control:
+	var cfg: Dictionary = Data.MECH_GIRLS[mech_id]
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(140, 92)
+	# 头像色块（按稀有度着色）
+	var avatar := ColorRect.new()
+	avatar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	avatar.offset_bottom = 32.0
+	avatar.color = _rarity_color(int(cfg.get("rarity", 0)))
+	avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(avatar)
+	# 名字（★N + 名字）
+	var name_label := Label.new()
+	name_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	name_label.offset_top = 36.0
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.add_theme_font_size_override("font_size", 13)
+	name_label.text = "★%d %s" % [int(Game.mech_stars.get(mech_id, 1)), str(cfg.get("name", str(mech_id)))]
+	card.add_child(name_label)
+	# 信息（职业 · 稀有度 + 战力）
+	var info_label := Label.new()
+	info_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	info_label.offset_top = 54.0
+	info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	info_label.add_theme_font_size_override("font_size", 11)
+	info_label.text = "%s · %s\n战力 %s" % [_class_text(StringName(str(cfg.get("class", "")))), _rarity_text(int(cfg.get("rarity", 0))), _format_num(Game.get_power(mech_id))]
+	card.add_child(info_label)
+	# 点击层（进详情页）
+	var click := Button.new()
+	click.flat = true
+	click.text = ""
+	click.set_anchors_preset(Control.PRESET_FULL_RECT)
+	click.pressed.connect(_on_mech_card_pressed.bind(mech_id))
+	card.add_child(click)
+	_mech_cards[mech_id] = { "name_label": name_label, "info_label": info_label }
+	return card
 
 
-func _on_upgrade_pressed(mech_id: StringName) -> void:
-	# 结果由 gold_changed / mech_girl_updated / mech_exp_updated / exp_balance_updated 信号回发
-	Game.upgrade(mech_id)
-
-
-func _on_star_pressed(mech_id: StringName) -> void:
-	# v0.10：升星（结果由 mech_star_updated / fragments_updated 信号回发）
-	Game.upgrade_star(mech_id)
-
-
-## 渲染一行机娘：等级 / 攻击来自信号（或首屏快照换算），满血值与等级上限由
-## Data 静态表 + 星级换算（与 Game._mech_stats / Game.get_level_cap 同一公式、同一数据源）
-func _render_mech_row(id: StringName, level: int, atk: int) -> void:
-	var row: Dictionary = _mech_rows.get(id, {})
-	if row.is_empty():
+## 刷新单张卡片（星级 / 战力；信号到达时 Game 已更新，只读重算）
+func _render_mech_card(mech_id: StringName) -> void:
+	var card: Dictionary = _mech_cards.get(mech_id, {})
+	if card.is_empty():
 		return
-	var max_hp: int = _calc_max_hp(id, level)
-	var cap: int = Game.get_level_cap(id)
-	row.stats_label.text = "Lv.%d/%d 攻%d 血 %d/%d" % [level, cap, atk, max_hp, max_hp]
+	var cfg: Dictionary = Data.MECH_GIRLS.get(mech_id, {})
+	card.name_label.text = "★%d %s" % [int(Game.mech_stars.get(mech_id, 1)), str(cfg.get("name", str(mech_id)))]
+	card.info_label.text = "%s · %s\n战力 %s" % [_class_text(StringName(str(cfg.get("class", "")))), _rarity_text(int(cfg.get("rarity", 0))), _format_num(Game.get_power(mech_id))]
 
 
-## 渲染一行机娘星级（v0.10）：名字前加 ★N（Game.mech_stars 只读）
-func _render_star(id: StringName) -> void:
-	var row: Dictionary = _mech_rows.get(id, {})
-	if row.is_empty():
-		return
-	var cfg: Dictionary = Data.MECH_GIRLS.get(id, {})
-	var star: int = int(Game.mech_stars.get(id, 1))
-	row.name_label.text = "★%d %s（%s）" % [star, str(cfg.get("name", str(id))), str(cfg.get("role", ""))]
+func _on_mech_card_pressed(mech_id: StringName) -> void:
+	# 经 static pending_mech_id 传递 mech_id 到详情页（UI 导航状态，非游戏数值）
+	pending_mech_id = mech_id
+	get_tree().change_scene_to_file("res://scenes/MechDetail.tscn")
 
 
-## 星级属性乘数（与 Game._mech_stats 同公式：×(1+STAR_STAT_GAIN)^(star-1)）
-func _calc_star_mult(id: StringName) -> float:
-	var star: int = int(Game.mech_stars.get(id, 1))
-	return pow(1.0 + Data.STAR_STAT_GAIN, float(star - 1))
-
-
-func _calc_atk(id: StringName, level: int) -> int:
-	var cfg: Dictionary = Data.MECH_GIRLS.get(id, {})
-	var base: int = int(cfg.get("base_atk", 0)) + (level - 1) * int(cfg.get("growth", {}).get("atk", 0))
-	return int(round(float(base) * _calc_star_mult(id)))
-
-
-func _calc_max_hp(id: StringName, level: int) -> int:
-	var cfg: Dictionary = Data.MECH_GIRLS.get(id, {})
-	var base: int = int(cfg.get("base_hp", 0)) + (level - 1) * int(cfg.get("growth", {}).get("hp", 0))
-	return int(round(float(base) * _calc_star_mult(id)))
-
-
-## 渲染一行机娘经验：exp / exp_next 以信号参数为准（v0.4）
-func _render_mech_exp(id: StringName, exp: int, exp_next: int) -> void:
-	var row: Dictionary = _mech_rows.get(id, {})
-	if row.is_empty():
-		return
-	row.exp_label.text = "经验 %d/%d" % [exp, exp_next]
+## 收集计数（v0.17：Game.get_collection_info 只读 {count, total}）
+func _refresh_mech_count() -> void:
+	var info: Dictionary = Game.get_collection_info()
+	_mech_count_label.text = "机娘收集 %d/%d" % [int(info.get("count", 0)), int(info.get("total", 0))]
 
 
 ## ------------------------------------------------------------------
-## 升星按钮状态（契约 §3.6 v0.10）：Game.star_cost(id) 只读入口给出所需碎片与解锁等级，
-## 不足/未解锁则置灰并记录原因（由 _refresh_upgrade_buttons 合并展示到 message_label）。
-## ------------------------------------------------------------------
-func _refresh_star_button(id: StringName) -> void:
-	var row: Dictionary = _mech_rows.get(id, {})
-	if row.is_empty():
-		return
-	var cfg: Dictionary = Data.MECH_GIRLS.get(id, {})
-	var star: int = int(Game.mech_stars.get(id, 1))
-	var cost: Dictionary = Game.star_cost(id)
-	var frag_needed: int = int(cost.get("fragments", 0))
-	var frag_have: int = int(Game.fragments.get(id, 0))
-	var level_required: int = int(cost.get("level_required", 0))
-	var level: int = int(Game.mech_levels.get(id, 1))
-	var reason: String = ""
-	if star >= Data.MAX_STAR:
-		row.star_button.text = "已满星"
-		row.star_button.disabled = true
-		row.star_reason = ""
-		return
-	elif frag_have < frag_needed:
-		reason = "%s 升星碎片不足：需 %d 片，现有 %d 片" % [str(cfg.get("name", str(id))), frag_needed, frag_have]
-	elif level_required > 0 and level < level_required:
-		reason = "%s 升星需先升到 %d 级" % [str(cfg.get("name", str(id))), level_required]
-	row.star_button.text = "升星（%d 片）" % frag_needed
-	row.star_button.disabled = reason != ""
-	row.star_reason = reason
-
-
-## ------------------------------------------------------------------
-## 升级/升星按钮状态（契约 §3.6 v0.5 / v0.6 / v0.10）：升级用只读入口判断金币/经验，
-## 升星用 Game.star_cost(id) 判断碎片/解锁等级；不足则置灰并在 message_label 提示原因；
-## 够则恢复可用并清空原因提示。判断所需当前数值只读 Game 公开状态（不修改任何数值）。
-## ------------------------------------------------------------------
-func _refresh_upgrade_buttons() -> void:
-	var gold_now: int = int(Game.gold)
-	var first_reason: String = ""
-	var any_disabled := false
-	for id in _mech_rows:
-		var row: Dictionary = _mech_rows[id]
-		# 升星按钮状态（顺带收集升星原因）
-		_refresh_star_button(id)
-		# 升级条件
-		var gold_cost: int = Game.upgrade_cost(id)
-		var exp_cost: int = Game.upgrade_exp_cost(id)
-		var exp_now: int = int(Game.mech_exp.get(id, 0)) + int(Game.exp_balance)
-		var lack_gold: bool = gold_now < gold_cost
-		var lack_exp: bool = exp_now < exp_cost
-		row.upgrade_button.disabled = lack_gold or lack_exp
-		if lack_gold or lack_exp:
-			any_disabled = true
-			if first_reason.is_empty():
-				if lack_gold and lack_exp:
-					first_reason = "金币和经验都不足，无法升级"
-				elif lack_gold:
-					first_reason = "金币不足，无法升级"
-				else:
-					first_reason = "经验不足，无法升级"
-		# 升星原因（无升级原因时展示）
-		if first_reason.is_empty() and row.star_reason != "":
-			first_reason = str(row.star_reason)
-			any_disabled = true
-	if any_disabled:
-		_message_label.text = first_reason
-	else:
-		_message_label.text = ""
-
-
-## ------------------------------------------------------------------
-## 首屏只读快照（契约 §3.1"首屏铺底例外"，见文件头"首屏说明"）：
-## 金币 / 待收获（金币+经验）/ 余额 / 解锁进度 / 机娘等级与经验 / 上次通关消息
-## 均来自 Game 公开状态
+## 首屏只读快照（契约 §3.1"首屏铺底例外"，见文件头"首屏说明"）
 ## ------------------------------------------------------------------
 func _seed_initial_state() -> void:
 	_gold_label.text = "金币：%d" % Game.gold
@@ -549,12 +421,10 @@ func _seed_initial_state() -> void:
 	_on_box_count_changed(Game.get_box_count())
 	_refresh_sign_button()
 	_refresh_balance()
-	_render_all_rows()
+	_refresh_mech_count()
 	_refresh_challenge()
-	_refresh_upgrade_buttons()
 	# 上次通关消息（v0.5：Game.last_clear 内存态、不入档；战斗胜利返回后重入显示）。
 	# 展示在独立标签 last_clear_label，不占用 message_label（后者留给即时提示）。
-	# v0.8：追加该关星级；v0.9：首通奖励明细含小钰碎片。
 	if not Game.last_clear.is_empty():
 		var lc: Dictionary = Game.last_clear
 		var level: int = int(lc.get("level", 0))
@@ -575,3 +445,37 @@ func _first_clear_frag(level: int) -> int:
 	if int(Data.CHAPTERS.get(1, {}).get("boss_level", 0)) == level:
 		return Data.XIAOYU_FRAGMENT_BOSS
 	return Data.XIAOYU_FRAGMENT_FIRST_CLEAR
+
+
+## ------------------------------------------------------------------
+## 文本工具（静态信息读 Data；动态值只来自信号 / 只读入口）
+## ------------------------------------------------------------------
+func _class_text(class_id: StringName) -> String:
+	match class_id:
+		&"tank": return "坦克"
+		&"fighter": return "战士"
+		&"assassin": return "刺客"
+		&"archer": return "射手"
+		&"mage": return "法师"
+		&"support": return "辅助"
+	return str(class_id)
+
+
+func _rarity_text(r: int) -> String:
+	match r:
+		Data.Rarity.R:
+			return "R"
+		Data.Rarity.SR:
+			return "SR"
+		Data.Rarity.SSR:
+			return "SSR"
+	return "?"
+
+
+func _rarity_color(rarity: int) -> Color:
+	match rarity:
+		Data.Rarity.SSR:
+			return Color(1.0, 0.82, 0.35)
+		Data.Rarity.SR:
+			return Color(0.70, 0.52, 0.95)
+	return Color(0.55, 0.68, 0.95)

@@ -1,0 +1,149 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/mech_detail_ui.gd" id="1_script"]
+
+[node name="MechDetail" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.09, 0.11, 0.15, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 16.0
+offset_right = -24.0
+offset_bottom = -16.0
+theme_override_constants/separation = 8
+
+[node name="top_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="back_button" type="Button" parent="root_box/top_row"]
+layout_mode = 2
+text = "← 返回"
+
+[node name="title_label" type="Label" parent="root_box/top_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "机娘详情"
+horizontal_alignment = 1
+
+[node name="scroll" type="ScrollContainer" parent="root_box"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="content_box" type="VBoxContainer" parent="root_box/scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="portrait" type="ColorRect" parent="root_box/scroll/content_box"]
+custom_minimum_size = Vector2(0, 150)
+layout_mode = 2
+
+[node name="name_label" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="stats_label" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="skills_title" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "—— 技能 ——"
+horizontal_alignment = 1
+
+[node name="skills_box" type="VBoxContainer" parent="root_box/scroll/content_box"]
+layout_mode = 2
+
+[node name="equip_title" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "—— 装备 ——"
+horizontal_alignment = 1
+
+[node name="equip_box" type="HBoxContainer" parent="root_box/scroll/content_box"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="equip_button" type="Button" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "前往装备界面"
+
+[node name="affinity_title" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "—— 好感度 ——"
+horizontal_alignment = 1
+
+[node name="affinity_row" type="HBoxContainer" parent="root_box/scroll/content_box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="affinity_bar" type="ProgressBar" parent="root_box/scroll/content_box/affinity_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+show_percentage = false
+
+[node name="affinity_value_label" type="Label" parent="root_box/scroll/content_box/affinity_row"]
+layout_mode = 2
+text = "0/100"
+
+[node name="gift_button" type="Button" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "送礼（200 金币）"
+
+[node name="bond_title" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = "—— 羁绊 ——"
+horizontal_alignment = 1
+
+[node name="bond_label" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="upgrade_row" type="HBoxContainer" parent="root_box/scroll/content_box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="upgrade_button" type="Button" parent="root_box/scroll/content_box/upgrade_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "升级"
+
+[node name="star_button" type="Button" parent="root_box/scroll/content_box/upgrade_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "升星"
+
+[node name="exp_label" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="message_label" type="Label" parent="root_box/scroll/content_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1

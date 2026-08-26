@@ -92,8 +92,14 @@ layout_mode = 2
 text = "—— 机娘小队 ——"
 horizontal_alignment = 1
 
-[node name="mech_box" type="VBoxContainer" parent="root_box"]
+[node name="mech_count_label" type="Label" parent="root_box"]
 layout_mode = 2
+text = "机娘收集 0/30"
+horizontal_alignment = 1
+
+[node name="mech_box" type="ScrollContainer" parent="root_box"]
+layout_mode = 2
+size_flags_vertical = 3
 
 [node name="last_clear_label" type="Label" parent="root_box"]
 layout_mode = 2
@@ -181,3 +187,8 @@ text = "抽卡"
 layout_mode = 2
 size_flags_horizontal = 3
 text = "布阵"
+
+[node name="collection_button" type="Button" parent="root_box/bottom_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "图鉴"

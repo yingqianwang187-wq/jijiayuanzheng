@@ -359,9 +359,9 @@ func _load_initial_state() -> void:
 			if Data.TITLES.has(tid):
 				titles_unlocked.append(tid)
 	title_equipped = &""
-	var equipped_data: Variant = data.get("title_equipped", "")
-	if StringName(str(equipped_data)) != &"" and Data.TITLES.has(StringName(str(equipped_data))):
-		title_equipped = StringName(str(equipped_data))
+	var title_equipped_data: Variant = data.get("title_equipped", "")
+	if StringName(str(title_equipped_data)) != &"" and Data.TITLES.has(StringName(str(title_equipped_data))):
+		title_equipped = StringName(str(title_equipped_data))
 	affinity.clear()
 	var affinity_data: Variant = data.get("affinity", {})
 	if affinity_data is Dictionary:
