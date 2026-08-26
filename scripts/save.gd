@@ -99,6 +99,9 @@ func save_game() -> void:
 		"expedition": {},
 		"survival": { "day": "", "best_waves": 0, "reward_claimed": -1 },
 		"home_interact": {},
+		# v0.22：转盘 / 节日活动
+		"spin": { "day": "", "free_used": false },
+		"festival_claimed": {},
 	}
 	# v0.20：皮肤解锁 / 穿戴（只认 SKINS）
 	var skins_unlocked_src: Variant = snapshot.get("skins_unlocked", [])
@@ -134,6 +137,15 @@ func save_game() -> void:
 				"day": str(hi_entry.get("day", "")),
 				"count": maxi(int(hi_entry.get("count", 0)), 0),
 			}
+	# v0.22：转盘（day / free_used）
+	var spin_src: Dictionary = snapshot.get("spin", {})
+	save_dict["spin"]["day"] = str(spin_src.get("day", ""))
+	save_dict["spin"]["free_used"] = bool(spin_src.get("free_used", false))
+	# v0.22：节日活动已领（只认 FESTIVALS）
+	var festival_claimed_src: Dictionary = snapshot.get("festival_claimed", {})
+	for fid in festival_claimed_src:
+		if Data.FESTIVALS.has(StringName(str(fid))):
+			save_dict["festival_claimed"][str(fid)] = true
 	# v0.17：字符串键数组（collection/achievement/title id）与好感映射
 	var collection_claimed_src: Variant = snapshot.get("collection_rewards_claimed", [])
 	if collection_claimed_src is Array:
@@ -622,6 +634,16 @@ func load_game() -> Dictionary:
 					"day": str(hi_entry.get("day", "")),
 					"count": maxi(int(hi_entry.get("count", 0)), 0),
 				}
+	# —— v0.22：转盘 / 节日活动 ——
+	var spin_src: Variant = parsed_dict.get("spin", {})
+	if spin_src is Dictionary:
+		result["spin"]["day"] = str(spin_src.get("day", ""))
+		result["spin"]["free_used"] = bool(spin_src.get("free_used", false))
+	var festival_claimed_src: Variant = parsed_dict.get("festival_claimed", {})
+	if festival_claimed_src is Dictionary:
+		for fid in festival_claimed_src:
+			if Data.FESTIVALS.has(StringName(str(fid))):
+				result["festival_claimed"][StringName(str(fid))] = true
 	return result
 
 ## 反序列化任务存储（progress 只认任务表 key；claimed 只认该任务表档位）
@@ -735,4 +757,7 @@ func _default_data() -> Dictionary:
 		"expedition": {},
 		"survival": { "day": "", "best_waves": 0, "reward_claimed": -1 },
 		"home_interact": {},
+		# v0.22：转盘（当日未用免费）/ 节日活动（默认空）
+		"spin": { "day": "", "free_used": false },
+		"festival_claimed": {},
 	}

@@ -108,6 +108,10 @@ var expedition: Dictionary = {}                   # 远征 {mech_id: {task_id: S
 var survival: Dictionary = { "day": "", "best_waves": 0, "reward_claimed": -1 }  # 生存 {day, best_waves, reward_claimed}
 var home_interact: Dictionary = {}                # 家园互动 {mech_id: {day: String, count: int}}（每日次数）
 
+## v0.22：转盘 / 节日活动
+var spin: Dictionary = { "day": "", "free_used": false }   # 转盘 {day, free_used}（免费次数跨日重置）
+var festival_claimed: Dictionary = {}             # 节日活动已领 {festival_id: true}
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -445,6 +449,18 @@ func _load_initial_state() -> void:
 					"day": str(hi_entry.get("day", "")),
 					"count": maxi(int(hi_entry.get("count", 0)), 0),
 				}
+	# —— v0.22：转盘 / 节日活动 ——
+	spin = { "day": "", "free_used": false }
+	var spin_data: Variant = data.get("spin", {})
+	if spin_data is Dictionary:
+		spin["day"] = str(spin_data.get("day", ""))
+		spin["free_used"] = bool(spin_data.get("free_used", false))
+	festival_claimed.clear()
+	var festival_data: Variant = data.get("festival_claimed", {})
+	if festival_data is Dictionary:
+		for fid in festival_data:
+			if Data.FESTIVALS.has(StringName(str(fid))):
+				festival_claimed[StringName(str(fid))] = true
 	# 成就 / 称号自动检查（新档启动时同步状态）
 	_check_achievements()
 	_check_titles()
@@ -515,6 +531,8 @@ func _emit_initial_state() -> void:
 	Contract.survival_changed.emit(str(survival.get("day", "")), int(survival.get("best_waves", 0)))
 	for mid in home_interact:
 		Contract.home_changed.emit(StringName(mid), int(home_interact[mid].get("count", 0)))
+	# v0.22：节日活动（转盘无持久结果，初始不发 spin_changed；UI 用 get_spin_info 快照）
+	Contract.festival_changed.emit(_festival_list())
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -3632,6 +3650,111 @@ func _prune_home_interact() -> void:
 		if str(home_interact[mech_id].get("day", "")) != today:
 			home_interact.erase(mech_id)
 
+## ================================================================
+## v0.22：日常转盘（契约 §3.18 X17 / 设计文档 §10.8 X17；每日 1 次免费、钻石续转、权重奖励）
+## ================================================================
+## 转盘（契约 §3.6 入口，v0.22）：每日 1 次免费（此后扣钻石）→ 按权重随机奖励
+## → 发对应货币信号 + spin_changed → 存档
+func spin_wheel() -> void:
+	_spin_daily_reset()
+	var today: String = Time.get_date_string_from_system()
+	if not bool(spin.get("free_used", false)):
+		spin["free_used"] = true
+		spin["day"] = today
+	else:
+		if diamond < Data.SPIN_COST:
+			return  # 钻石不足：失败不发信号
+		diamond -= Data.SPIN_COST
+		Contract.diamond_changed.emit(diamond)
+	var reward := _roll_spin_reward()
+	_grant_task_reward(reward)
+	Contract.spin_changed.emit(reward)
+	Save.save_game()
+
+## 跨日重置转盘免费次数（day 变化 → free_used 归 false，沿用"每日重置"机制）
+func _spin_daily_reset() -> void:
+	var today: String = Time.get_date_string_from_system()
+	if str(spin.get("day", "")) != today:
+		spin["day"] = today
+		spin["free_used"] = false
+
+## 转盘权重随机（金币/钻石/宝石/召唤券；按 Data.SPIN_REWARDS 权重累计，返回 {type, amount, quality?}）
+func _roll_spin_reward() -> Dictionary:
+	var total := 0
+	for entry in Data.SPIN_REWARDS:
+		total += int(entry.get("weight", 1))
+	if total <= 0:
+		total = 1
+	var roll: int = randi() % total
+	var acc := 0
+	for entry in Data.SPIN_REWARDS:
+		acc += int(entry.get("weight", 1))
+		if roll < acc:
+			return { "type": str(entry.type), "amount": int(entry.amount), "quality": str(entry.get("quality", "")) }
+	var first: Dictionary = Data.SPIN_REWARDS[0]
+	return { "type": str(first.type), "amount": int(first.amount), "quality": str(first.get("quality", "")) }
+
+## 只读：转盘信息（契约 §3.6 入口，v0.22；读时先做跨日重置，同 get_stamina 先例）
+func get_spin_info() -> Dictionary:
+	_spin_daily_reset()
+	return {
+		"day": str(spin.get("day", "")),
+		"free_used": bool(spin.get("free_used", false)),
+		"free_limit": Data.SPIN_FREE_DAILY,
+		"cost": Data.SPIN_COST,
+	}
+
+## ================================================================
+## v0.22：节日活动（契约 §3.18 X22 / 设计文档 §10.9 X22；日历触发节日任务 + 奖励）
+## ================================================================
+## 节日是否今日生效（month/day 匹配今天；month=0/day=0 = 常驻）
+func _festival_active(festival_id: StringName) -> bool:
+	var cfg: Dictionary = Data.FESTIVALS[festival_id]
+	var month: int = int(cfg.get("month", 0))
+	var day: int = int(cfg.get("day", 0))
+	if month == 0 and day == 0:
+		return true  # 常驻节日
+	var now := Time.get_date_dict_from_system()
+	return int(now["month"]) == month and int(now["day"]) == day
+
+## 节日活动列表（含 active / done / claimed，供 UI 与信号；达成进度复用 _achievement_progress）
+func _festival_list() -> Array:
+	var result: Array = []
+	for fid in Data.FESTIVALS:
+		var cfg: Dictionary = Data.FESTIVALS[fid]
+		var cond: Dictionary = cfg.condition
+		var progress: int = _achievement_progress(str(cond.type))
+		result.append({
+			"id": fid,
+			"name": str(cfg.name),
+			"month": int(cfg.get("month", 0)),
+			"day": int(cfg.get("day", 0)),
+			"active": _festival_active(fid),
+			"done": progress >= int(cond.target),
+			"claimed": festival_claimed.has(fid),
+		})
+	return result
+
+## 只读：节日活动信息（契约 §3.6 入口，v0.22）
+func get_festival_info() -> Array:
+	return _festival_list()
+
+## 领取节日奖励（契约 §3.6 入口，v0.22）：当日生效（或常驻）+ 达成且未领 → 发奖 → festival_changed → 存档
+func claim_festival_reward(festival_id: StringName) -> void:
+	if not Data.FESTIVALS.has(festival_id) or festival_claimed.has(festival_id):
+		return
+	if not _festival_active(festival_id):
+		return
+	var cfg: Dictionary = Data.FESTIVALS[festival_id]
+	var cond: Dictionary = cfg.condition
+	if _achievement_progress(str(cond.type)) < int(cond.target):
+		return
+	for reward in cfg.reward:
+		_grant_task_reward(reward)
+	festival_claimed[festival_id] = true
+	Contract.festival_changed.emit(_festival_list())
+	Save.save_game()
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -3722,4 +3845,7 @@ func get_save_snapshot() -> Dictionary:
 		"expedition": expedition,
 		"survival": survival,
 		"home_interact": home_interact,
+		# v0.22：转盘 / 节日活动
+		"spin": spin,
+		"festival_claimed": festival_claimed,
 	}

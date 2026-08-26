@@ -635,6 +635,34 @@ const HOME_INTERACT_LIMIT := 3                 # 每机娘每日互动次数上�
 const HOME_INTERACT_AFFINITY_GAIN := 1         # 每次互动好感 +1（上限 AFFINITY_MAX）
 
 # ------------------------------------------------------------------
+# 日常转盘（设计文档 §10.8 X17，v0.22：每日 1 次免费、钻石续转、权重随机奖励；
+#   数值为推荐值【待确认】）
+# ------------------------------------------------------------------
+const SPIN_FREE_DAILY := 1                     # 每日免费转盘次数
+const SPIN_COST := 100                         # 免费次数用完后每次续转所需钻石
+
+## 转盘奖励权重表（type: gold / diamond / gem / ticket；权重合计 = 100）
+const SPIN_REWARDS := [
+	{ "type": "gold", "amount": 500, "weight": 40 },
+	{ "type": "gold", "amount": 1000, "weight": 25 },
+	{ "type": "diamond", "amount": 30, "weight": 12 },
+	{ "type": "diamond", "amount": 80, "weight": 8 },
+	{ "type": "gem", "quality": "white", "amount": 1, "weight": 7 },
+	{ "type": "ticket", "amount": 1, "weight": 5 },
+	{ "type": "gem", "quality": "green", "amount": 1, "weight": 3 },
+]
+
+# ------------------------------------------------------------------
+# 节日活动（设计文档 §10.9 X22，v0.22：日历触发节日任务 + 奖励，本地规则；
+#   month=0/day=0 表示常驻节日；condition 复用成就进度类型；内容可后补【待确认】）
+# ------------------------------------------------------------------
+const FESTIVALS := {
+	&"fes_newyear": { "name": "新年庆典", "month": 1, "day": 1, "condition": { "type": "story_cleared", "target": 3 }, "reward": [ { "type": "diamond", "amount": 100 }, { "type": "ticket", "amount": 1 } ] },
+	&"fes_spring": { "name": "新春活动", "month": 0, "day": 0, "condition": { "type": "summon_count", "target": 10 }, "reward": [ { "type": "gold", "amount": 1500 }, { "type": "gem", "quality": "white", "amount": 1 } ] },
+	&"fes_midautumn": { "name": "中秋赏月", "month": 9, "day": 15, "condition": { "type": "tower", "target": 10 }, "reward": [ { "type": "diamond", "amount": 80 }, { "type": "gem", "quality": "blue", "amount": 1 } ] },
+}
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300
