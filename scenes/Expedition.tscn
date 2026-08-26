@@ -1,0 +1,76 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/expedition_ui.gd" id="1_script"]
+
+[node name="Expedition" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.07, 0.09, 0.13, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 48.0
+offset_top = 24.0
+offset_right = -48.0
+offset_bottom = -24.0
+theme_override_constants/separation = 6
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "远征"
+horizontal_alignment = 1
+
+[node name="hint_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "选择闲置机娘派遣任务；到期领取奖励（离线照常计时）"
+horizontal_alignment = 1
+
+[node name="ongoing_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 进行中 ——"
+horizontal_alignment = 1
+
+[node name="ongoing_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="dispatch_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 派遣 ——"
+horizontal_alignment = 1
+
+[node name="task_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="mech_box" type="VBoxContainer" parent="root_box"]
+layout_mode = 2
+
+[node name="dispatch_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "派遣选中机娘"
+
+[node name="message_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="back_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "返回"

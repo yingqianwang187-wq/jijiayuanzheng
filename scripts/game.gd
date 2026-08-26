@@ -103,6 +103,11 @@ var skins_unlocked: Array = []                    # 已解锁皮肤 [StringName 
 var skin_equipped: Dictionary = {}                # 穿戴 {mech_id: skin_id}
 var daily_boss: Dictionary = { "day": "", "damage": 0, "reward_claimed": -1 }  # 每日 BOSS {day, damage, reward_claimed}
 
+## v0.21：远征 / 生存 / 家园
+var expedition: Dictionary = {}                   # 远征 {mech_id: {task_id: StringName, end_time: int}}（end_time = 到期 unix 秒）
+var survival: Dictionary = { "day": "", "best_waves": 0, "reward_claimed": -1 }  # 生存 {day, best_waves, reward_claimed}
+var home_interact: Dictionary = {}                # 家园互动 {mech_id: {day: String, count: int}}（每日次数）
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -118,6 +123,7 @@ var battle: Dictionary = {
 	"deaths": 0,        # 我方阵亡数（星级评价用）
 	"mech_ids": [],     # 我方上阵机娘 id（经验发放用）
 	"accelerate": false,
+	"survival_wave": 1, # 生存模式当前波数（v0.21；其余模式不用）
 }
 
 var idle_timer: Timer
@@ -413,6 +419,32 @@ func _load_initial_state() -> void:
 		daily_boss["day"] = str(daily_boss_data.get("day", ""))
 		daily_boss["damage"] = maxi(int(daily_boss_data.get("damage", 0)), 0)
 		daily_boss["reward_claimed"] = int(daily_boss_data.get("reward_claimed", -1))
+	# —— v0.21：远征 / 生存 / 家园 ——
+	expedition.clear()
+	var expedition_data: Variant = data.get("expedition", {})
+	if expedition_data is Dictionary:
+		for mech_id in expedition_data:
+			var exp_entry: Variant = expedition_data[mech_id]
+			if exp_entry is Dictionary and owned_mechs.has(StringName(str(mech_id))):
+				var task_id := StringName(str(exp_entry.get("task_id", "")))
+				if Data.EXPEDITION_TASKS.has(task_id) and int(exp_entry.get("end_time", 0)) > 0:
+					expedition[StringName(str(mech_id))] = { "task_id": task_id, "end_time": int(exp_entry["end_time"]) }
+	survival = { "day": "", "best_waves": 0, "reward_claimed": -1 }
+	var survival_data: Variant = data.get("survival", {})
+	if survival_data is Dictionary:
+		survival["day"] = str(survival_data.get("day", ""))
+		survival["best_waves"] = maxi(int(survival_data.get("best_waves", 0)), 0)
+		survival["reward_claimed"] = int(survival_data.get("reward_claimed", -1))
+	home_interact.clear()
+	var home_data: Variant = data.get("home_interact", {})
+	if home_data is Dictionary:
+		for mech_id in home_data:
+			var hi_entry: Variant = home_data[mech_id]
+			if hi_entry is Dictionary and owned_mechs.has(StringName(str(mech_id))):
+				home_interact[StringName(str(mech_id))] = {
+					"day": str(hi_entry.get("day", "")),
+					"count": maxi(int(hi_entry.get("count", 0)), 0),
+				}
 	# 成就 / 称号自动检查（新档启动时同步状态）
 	_check_achievements()
 	_check_titles()
@@ -478,6 +510,11 @@ func _emit_initial_state() -> void:
 	# v0.20：皮肤 / 每日 BOSS
 	Contract.skin_changed.emit(skins_unlocked, skin_equipped)
 	Contract.daily_boss_changed.emit(int(daily_boss.damage), str(daily_boss.day))
+	# v0.21：远征 / 生存 / 家园
+	Contract.expedition_changed.emit(expedition)
+	Contract.survival_changed.emit(str(survival.get("day", "")), int(survival.get("best_waves", 0)))
+	for mid in home_interact:
+		Contract.home_changed.emit(StringName(mid), int(home_interact[mid].get("count", 0)))
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -1351,9 +1388,12 @@ func _any_alive(units: Array) -> bool:
 			return true
 	return false
 
-## 波次推进：当前波清空 → 下一波或胜利
+## 波次推进：当前波清空 → 下一波或胜利（生存模式：无限生成下一波而非胜利，v0.21）
 func _check_wave_clear() -> void:
 	if _any_alive(battle.enemies):
+		return
+	if battle.mode == &"survival":
+		_next_survival_wave()
 		return
 	if battle.pending_waves.is_empty():
 		_resolve_victory()
@@ -1367,8 +1407,11 @@ func _check_wave_clear() -> void:
 		Contract.enemy_updated.emit(e.id, int(e.hp))
 		Contract.energy_changed.emit(&"enemy", e.id, 0)
 
-## 60 轮超时：按双方剩余血量百分比判定（我方高则胜，否则败）
+## 60 轮超时：按双方剩余血量百分比判定（我方高则胜，否则败；生存模式按波数结算，v0.21）
 func _check_timeout() -> void:
+	if battle.mode == &"survival":
+		_settle_survival_end()
+		return
 	var mech_ratio: float = _remaining_hp_ratio(battle.mechs)
 	var enemy_ratio: float = _remaining_hp_ratio(battle.enemies)
 	Contract.battle_prompt.emit(&"hit", "战斗超时")
@@ -1388,8 +1431,12 @@ func _remaining_hp_ratio(units: Array) -> float:
 		return 0.0
 	return total / max_total
 
-## 胜利：按战斗模式分流（主线 story / 秘境 dungeon / 爬塔 tower / 每日BOSS boss，v0.20）
+## 胜利：按战斗模式分流（主线 story / 秘境 dungeon / 爬塔 tower / 每日BOSS boss；生存无胜利，v0.21）
 func _resolve_victory() -> void:
+	if battle.mode == &"survival":
+		# 生存模式无"胜利"：超时且我方血量占比更高时也按波数结算（防御性分支，正常走 _check_timeout）
+		_settle_survival_end()
+		return
 	if battle.mode == &"dungeon":
 		_resolve_dungeon_victory()
 		return
@@ -1525,11 +1572,15 @@ func _resolve_dungeon_victory() -> void:
 	Save.save_game()
 
 ## 失败：发 battle_failed → 停止战斗，可重试
+## 生存模式：我方全灭 → 按波数结算（v0.21）
 ## 秘境挑战失败：全额返还已扣体力（v0.20 裁决：重试不重复扣，成功/扫荡才真正消耗）
 ## 每日BOSS 战失败：按伤害结算（v0.20）
 func _resolve_defeat() -> void:
 	battle.active = false
 	battle_timer.stop()
+	if battle.mode == &"survival":
+		_settle_survival_end()
+		return
 	if battle.mode == &"boss":
 		_resolve_boss_end()
 		return
@@ -3346,6 +3397,241 @@ func get_rank_info() -> Dictionary:
 		"story_progress": cleared_levels.size(),
 	}
 
+## ================================================================
+## v0.21：远征/派遣（契约 §3.17 X6 / 设计文档 §10.7 X6；1~8 小时任务、离线计时）
+## ================================================================
+## 派遣机娘远征（契约 §3.6 入口，v0.21）：校验已拥有 + 闲置（未上阵且未派遣）+ 任务存在
+## → 记录 end_time（now + hours×3600，离线照常）→ expedition_changed → 存档
+func start_expedition(mech_id: StringName, task_id: StringName) -> void:
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+		return
+	if not Data.EXPEDITION_TASKS.has(task_id):
+		return
+	if expedition.has(mech_id):
+		return  # 已派遣（未派遣校验）
+	if _mech_in_formation(mech_id):
+		return  # 已上阵（不闲置）
+	var hours: int = int(Data.EXPEDITION_TASKS[task_id].hours)
+	expedition[mech_id] = { "task_id": task_id, "end_time": int(Time.get_unix_time_from_system()) + hours * 3600 }
+	Contract.expedition_changed.emit(expedition)
+	Save.save_game()
+
+## 领取远征奖励（契约 §3.6 入口，v0.21）：到期（now ≥ end_time，离线照常）→
+## 金币入账 / 经验入全局池 / 材料入背包 → 移除该派遣 → expedition_changed → 存档
+func collect_expedition(mech_id: StringName) -> void:
+	if not expedition.has(mech_id):
+		return
+	var entry: Dictionary = expedition[mech_id]
+	if int(Time.get_unix_time_from_system()) < int(entry.end_time):
+		return  # 未到期
+	var task_cfg: Dictionary = Data.EXPEDITION_TASKS[StringName(str(entry.task_id))]
+	var gold_gain: int = int(task_cfg.get("gold", 0))
+	var exp_gain: int = int(task_cfg.get("exp", 0))
+	var mat_gain: int = int(task_cfg.get("material", 0))
+	if gold_gain > 0:
+		gold += gold_gain
+		Contract.gold_changed.emit(gold)
+	if exp_gain > 0:
+		exp_balance += exp_gain
+		Contract.exp_balance_updated.emit(exp_balance)
+	if mat_gain > 0:
+		bag["items"]["material_common"] = int(bag["items"].get("material_common", 0)) + mat_gain
+		Contract.bag_updated.emit(bag["items"], int(bag["capacity"]))
+	expedition.erase(mech_id)
+	Contract.expedition_changed.emit(expedition)
+	Save.save_game()
+
+## 只读：远征信息（契约 §3.6 入口，v0.21）
+## 返回：{expedition: {mech_id: {task_id, end_time, done}}, tasks: [...]}
+func get_expedition_info() -> Dictionary:
+	var now: int = int(Time.get_unix_time_from_system())
+	var exp_map := {}
+	for mech_id in expedition:
+		var entry: Dictionary = expedition[mech_id]
+		exp_map[mech_id] = {
+			"task_id": StringName(str(entry.task_id)),
+			"end_time": int(entry.end_time),
+			"done": now >= int(entry.end_time),
+		}
+	var tasks: Array = []
+	for task_id in Data.EXPEDITION_TASKS:
+		var cfg: Dictionary = Data.EXPEDITION_TASKS[task_id]
+		tasks.append({
+			"id": task_id,
+			"name": str(cfg.name),
+			"hours": int(cfg.hours),
+			"gold": int(cfg.get("gold", 0)),
+			"exp": int(cfg.get("exp", 0)),
+			"material": int(cfg.get("material", 0)),
+		})
+	return { "expedition": exp_map, "tasks": tasks }
+
+## 闲置校验：该机娘是否在阵型中（远征派遣用）
+func _mech_in_formation(mech_id: StringName) -> bool:
+	for slot in formation:
+		if StringName(str(slot.id)) == mech_id:
+			return true
+	return false
+
+## ================================================================
+## v0.21：生存模式（契约 §3.17 X8 / 设计文档 §10.7 X8；无限波次、每日 1 次、按波数奖励）
+## ================================================================
+## 进入生存模式（契约 §3.6 入口，v0.21）：每日 1 次免费（跨日重置）；battle.mode = "survival"
+func start_survival() -> void:
+	var today: String = Time.get_date_string_from_system()
+	if str(survival.get("day", "")) == today:
+		return  # 每日 1 次（结算时标记当日）
+	_start_survival_battle()
+
+## 构建生存模式战斗（我方按阵型；第 1 波敌人；无限波次由 _check_wave_clear 驱动）
+func _start_survival_battle() -> void:
+	if formation.size() < 2:
+		_ensure_default_formation()
+	battle = {
+		"level": 0,
+		"tick": 0,
+		"active": true,
+		"mode": &"survival",
+		"dungeon_ctx": {},
+		"wave": 1,
+		"total_waves": Data.SURVIVAL_MAX_WAVES_SHOW,
+		"mechs": [],
+		"enemies": [],
+		"pending_waves": [],
+		"deaths": 0,
+		"mech_ids": [],
+		"accelerate": accelerate,
+		"survival_wave": 1,
+	}
+	var used_ids := {}
+	for slot in formation:
+		var mech_id := StringName(str(slot.id))
+		if not owned_mechs.has(mech_id) or used_ids.has(mech_id):
+			continue
+		used_ids[mech_id] = true
+		battle.mechs.append(_build_mech_unit(mech_id, int(slot.row), int(slot.col)))
+		battle.mech_ids.append(mech_id)
+	_spawn_survival_wave(1)
+	_apply_passive_battle_start()
+	Contract.battle_tick.emit(0)
+	for m in battle.mechs:
+		Contract.mech_girl_updated.emit(m.id, int(m.hp), int(m.atk), int(m.level))
+		Contract.energy_changed.emit(&"mech", m.id, int(m.energy))
+	for e in battle.enemies:
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, int(e.energy))
+	Contract.wave_changed.emit(battle.wave, battle.total_waves)
+	_apply_battle_timer_speed()
+	battle_timer.start()
+
+## 生成生存模式第 wave 波敌人（强度随波数递增，敌人数 1~3 名递增；数值放 Data）
+func _spawn_survival_wave(wave: int) -> void:
+	var growth: float = pow(Data.SURVIVAL_ENEMY_GROWTH, float(wave - 1))
+	var atk: int = roundi(float(Data.SURVIVAL_ENEMY_BASE_ATK) * growth)
+	var hp: int = roundi(float(Data.SURVIVAL_ENEMY_BASE_HP) * growth)
+	var def: int = Data.SURVIVAL_ENEMY_BASE_DEF + int(wave / 5)
+	var spd: int = Data.SURVIVAL_ENEMY_BASE_SPD + int(wave / 10)
+	var count: int = 1 + (wave - 1) % 3
+	var wave_cfg: Array = []
+	for i in count:
+		wave_cfg.append({
+			"id": StringName("sur_e" + str(wave) + "_" + str(i)),
+			"name": "失控机械兵",
+			"tier": "normal",
+			"class": "fighter",
+			"atk": atk, "hp": hp, "def": def, "spd": spd,
+			"skills": [&"enemy_shot"],
+		})
+	_spawn_wave(wave_cfg)
+
+## 生存模式清波：生成下一波（强度递增）而非胜利；重置节拍计数（60 轮上限按波计）
+func _next_survival_wave() -> void:
+	var wave: int = int(battle.get("survival_wave", 1)) + 1
+	battle.survival_wave = wave
+	battle.wave = wave
+	battle.tick = 0
+	_spawn_survival_wave(wave)
+	Contract.wave_changed.emit(wave, int(battle.total_waves))
+	Contract.battle_tick.emit(0)
+	for e in battle.enemies:
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, 0)
+
+## 生存模式结算（我方全灭 / 超时）：按已过波数更新最佳波数（标记当日）→ survival_changed → 存档
+func _settle_survival_end() -> void:
+	battle.active = false
+	battle_timer.stop()
+	var waves_cleared: int = maxi(int(battle.get("survival_wave", 1)) - 1, 0)
+	var today: String = Time.get_date_string_from_system()
+	survival["day"] = today
+	survival["best_waves"] = maxi(int(survival.get("best_waves", 0)), waves_cleared)
+	Contract.survival_changed.emit(today, int(survival["best_waves"]))
+	Save.save_game()
+
+## 只读：生存信息（契约 §3.6 入口，v0.21）
+func get_survival_info() -> Dictionary:
+	var today: String = Time.get_date_string_from_system()
+	return {
+		"day": str(survival.get("day", "")),
+		"best_waves": int(survival.get("best_waves", 0)),
+		"fought": str(survival.get("day", "")) == today,
+		"reward_claimed": int(survival.get("reward_claimed", -1)),
+	}
+
+## 领取生存波数档位奖励（契约 §3.6 入口，v0.21）：取最高可达且未领的档位
+func claim_survival_reward() -> void:
+	var best_waves: int = int(survival.get("best_waves", 0))
+	var claimed: int = int(survival.get("reward_claimed", -1))
+	var best_tier: int = -1
+	for i in Data.SURVIVAL_REWARD_TIERS.size():
+		if best_waves >= int(Data.SURVIVAL_REWARD_TIERS[i].waves):
+			best_tier = i
+	if best_tier < 0 or best_tier <= claimed:
+		return
+	for reward in Data.SURVIVAL_REWARD_TIERS[best_tier].reward:
+		_grant_task_reward(reward)
+	survival["reward_claimed"] = best_tier
+	Contract.survival_changed.emit(str(survival.get("day", "")), int(survival["best_waves"]))
+	Save.save_game()
+
+## ================================================================
+## v0.21：家园互动（契约 §3.17 X10 / 设计文档 §10.7 X10；好感关联、每日次数限制）
+## ================================================================
+## 机娘互动（契约 §3.6 入口，v0.21）：已拥有 + 当日次数 < 上限 → count+1（好感 +1）→ home_changed → 存档
+func interact_home(mech_id: StringName) -> void:
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+		return
+	_prune_home_interact()
+	var today: String = Time.get_date_string_from_system()
+	var entry: Dictionary = home_interact.get(mech_id, {})
+	var count: int = 0
+	if str(entry.get("day", "")) == today:
+		count = int(entry.get("count", 0))
+	if count >= Data.HOME_INTERACT_LIMIT:
+		return  # 当日次数已满
+	home_interact[mech_id] = { "day": today, "count": count + 1 }
+	Contract.home_changed.emit(mech_id, count + 1)
+	# 家园互动好感关联（每次互动好感 +1，上限 AFFINITY_MAX；属性变化随 mech_girl_updated）
+	var value: int = int(affinity.get(mech_id, 0))
+	if value < Data.AFFINITY_MAX:
+		value = mini(value + Data.HOME_INTERACT_AFFINITY_GAIN, Data.AFFINITY_MAX)
+		affinity[mech_id] = value
+		Contract.affinity_changed.emit(mech_id, value)
+		_emit_mech_after_equip(mech_id)
+	Save.save_game()
+
+## 只读：家园信息（契约 §3.6 入口，v0.21）
+func get_home_info() -> Dictionary:
+	_prune_home_interact()
+	return { "home_interact": home_interact, "limit": Data.HOME_INTERACT_LIMIT }
+
+## 清理过期互动记录（非当天的条目删除，保持 home_interact 只含当日数据）
+func _prune_home_interact() -> void:
+	var today: String = Time.get_date_string_from_system()
+	for mech_id in home_interact.keys():
+		if str(home_interact[mech_id].get("day", "")) != today:
+			home_interact.erase(mech_id)
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -3432,4 +3718,8 @@ func get_save_snapshot() -> Dictionary:
 		"skins_unlocked": skins_unlocked,
 		"skin_equipped": skin_equipped,
 		"daily_boss": daily_boss,
+		# v0.21：远征 / 生存 / 家园
+		"expedition": expedition,
+		"survival": survival,
+		"home_interact": home_interact,
 	}

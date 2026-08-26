@@ -597,6 +597,44 @@ const DAILY_BOSS_REWARD_TIERS := [
 ]
 
 # ------------------------------------------------------------------
+# 远征/派遣（设计文档 §10.7 X6，v0.21：闲置机娘派任务 1~8 小时，到期带回金币/经验/材料；
+#   离线照常计时；奖励为推荐值【待确认】）
+# ------------------------------------------------------------------
+const EXPEDITION_TASKS := {
+	&"exp_1h": { "name": "短途侦察", "hours": 1, "gold": 150, "exp": 80, "material": 0 },
+	&"exp_2h": { "name": "边境巡逻", "hours": 2, "gold": 320, "exp": 170, "material": 0 },
+	&"exp_4h": { "name": "物资护送", "hours": 4, "gold": 700, "exp": 360, "material": 1 },
+	&"exp_8h": { "name": "深入敌后", "hours": 8, "gold": 1500, "exp": 800, "material": 2 },
+}
+
+# ------------------------------------------------------------------
+# 生存模式（设计文档 §10.7 X8，v0.21：无限波次、每波增强、我方全灭结束、每日 1 次；
+#   按波数档位领奖；数值为推荐值【待确认】）
+# ------------------------------------------------------------------
+const SURVIVAL_ENEMY_BASE_ATK := 16            # 第 1 波敌人基础属性（每波 ×1.10 递增）
+const SURVIVAL_ENEMY_BASE_HP := 160
+const SURVIVAL_ENEMY_BASE_DEF := 5
+const SURVIVAL_ENEMY_BASE_SPD := 5
+const SURVIVAL_ENEMY_GROWTH := 1.10
+const SURVIVAL_MAX_WAVES_SHOW := 999           # 生存模式波次显示上限（无限波次用）
+
+## 生存模式波数档位奖励（按 best_waves 达到的最高档，一次性领取；reward 结构同任务奖励）
+const SURVIVAL_REWARD_TIERS := [
+	{ "waves": 5, "reward": [ { "type": "gold", "amount": 300 } ] },
+	{ "waves": 10, "reward": [ { "type": "gold", "amount": 600 }, { "type": "diamond", "amount": 20 } ] },
+	{ "waves": 15, "reward": [ { "type": "gold", "amount": 1000 }, { "type": "diamond", "amount": 40 }, { "type": "ticket", "amount": 1 } ] },
+	{ "waves": 20, "reward": [ { "type": "gold", "amount": 1500 }, { "type": "diamond", "amount": 60 }, { "type": "gem", "quality": "white", "amount": 1 } ] },
+	{ "waves": 30, "reward": [ { "type": "gold", "amount": 2500 }, { "type": "diamond", "amount": 100 }, { "type": "ticket", "amount": 2 } ] },
+]
+
+# ------------------------------------------------------------------
+# 家园互动（设计文档 §10.7 X10，v0.21：机娘休息互动、好感关联、每机娘每日次数限制；
+#   数值为推荐值【待确认】）
+# ------------------------------------------------------------------
+const HOME_INTERACT_LIMIT := 3                 # 每机娘每日互动次数上限
+const HOME_INTERACT_AFFINITY_GAIN := 1         # 每次互动好感 +1（上限 AFFINITY_MAX）
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300

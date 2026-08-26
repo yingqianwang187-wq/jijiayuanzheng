@@ -173,6 +173,28 @@ custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "每日BOSS"
 
+[node name="home_feature_row" type="HBoxContainer" parent="shell_box/page_container/city_page/city_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="expedition_button" type="Button" parent="shell_box/page_container/city_page/city_box/home_feature_row"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "远征"
+
+[node name="survival_button" type="Button" parent="shell_box/page_container/city_page/city_box/home_feature_row"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "生存"
+
+[node name="home_button" type="Button" parent="shell_box/page_container/city_page/city_box/home_feature_row"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "家园"
+
 [node name="formation_page" parent="shell_box/page_container" instance=ExtResource("2_fmt")]
 visible = false
 layout_mode = 1

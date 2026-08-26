@@ -110,6 +110,9 @@ func _seed_initial_state() -> void:
 		var weekday: int = int(Time.get_date_dict_from_system()["weekday"])
 		var boss_cfg: Dictionary = Data.DAILY_BOSSES[weekday]
 		_title_label.text = "每日BOSS · %s" % str(boss_cfg.get("name", "?"))
+	elif _battle_mode == &"survival":
+		# v0.21：生存模式（无限波次，读 battle.survival_wave）
+		_title_label.text = "第 %d 波 · 生存" % int(Game.battle.get("survival_wave", 1))
 	else:
 		_battle_level = int(Game.battle.level)
 		_title_label.text = "第 %d 关 · 战斗" % _battle_level

@@ -61,6 +61,9 @@ const PAGE_COLLECTION := 5
 @onready var _craft_button: Button = $shell_box/page_container/city_page/city_box/building_grid/craft_button
 @onready var _tower_button: Button = $shell_box/page_container/city_page/city_box/building_grid/tower_button
 @onready var _daily_boss_button: Button = $shell_box/page_container/city_page/city_box/daily_boss_button
+@onready var _expedition_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/expedition_button
+@onready var _survival_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/survival_button
+@onready var _home_button: Button = $shell_box/page_container/city_page/city_box/home_feature_row/home_button
 # 右上角常驻（所有页面可点）
 @onready var _settings_button: Button = $shell_box/top_bar/top_row/settings_button
 @onready var _save_button: Button = $shell_box/top_bar/top_row/save_button
@@ -142,6 +145,9 @@ func _ready() -> void:
 	_craft_button.pressed.connect(_on_craft_pressed)
 	_tower_button.pressed.connect(_on_tower_pressed)
 	_daily_boss_button.pressed.connect(_on_daily_boss_pressed)
+	_expedition_button.pressed.connect(_on_expedition_pressed)
+	_survival_button.pressed.connect(_on_survival_pressed)
+	_home_button.pressed.connect(_on_home_pressed)
 	# 主线页
 	_challenge_button.pressed.connect(_on_enter_battle_pressed)
 	# 机娘页筛选
@@ -390,6 +396,21 @@ func _on_tower_pressed() -> void:
 func _on_daily_boss_pressed() -> void:
 	# v0.20：每日BOSS 覆盖层
 	_open_overlay("res://scenes/DailyBoss.tscn")
+
+
+func _on_expedition_pressed() -> void:
+	# v0.21：远征覆盖层
+	_open_overlay("res://scenes/Expedition.tscn")
+
+
+func _on_survival_pressed() -> void:
+	# v0.21：生存模式覆盖层
+	_open_overlay("res://scenes/Survival.tscn")
+
+
+func _on_home_pressed() -> void:
+	# v0.21：家园互动覆盖层
+	_open_overlay("res://scenes/Home.tscn")
 
 
 func _on_enter_battle_pressed() -> void:

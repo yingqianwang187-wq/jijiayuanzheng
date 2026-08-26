@@ -95,6 +95,10 @@ func save_game() -> void:
 		"skins_unlocked": [],
 		"skin_equipped": {},
 		"daily_boss": { "day": str(snapshot.get("daily_boss", {}).get("day", "")), "damage": maxi(int(snapshot.get("daily_boss", {}).get("damage", 0)), 0), "reward_claimed": int(snapshot.get("daily_boss", {}).get("reward_claimed", -1)) },
+		# v0.21：远征 / 生存 / 家园
+		"expedition": {},
+		"survival": { "day": "", "best_waves": 0, "reward_claimed": -1 },
+		"home_interact": {},
 	}
 	# v0.20：皮肤解锁 / 穿戴（只认 SKINS）
 	var skins_unlocked_src: Variant = snapshot.get("skins_unlocked", [])
@@ -108,6 +112,28 @@ func save_game() -> void:
 		var sid2 := StringName(str(skin_equipped_src[mech_id]))
 		if Data.SKINS.has(sid2) and Data.MECH_GIRLS.has(StringName(str(mech_id))):
 			save_dict["skin_equipped"][str(mech_id)] = str(sid2)
+	# v0.21：远征（只认已拥有机娘 + 合法任务 + 合法到期时间）
+	var expedition_src: Dictionary = snapshot.get("expedition", {})
+	for mech_id in expedition_src:
+		var exp_entry: Variant = expedition_src[mech_id]
+		if exp_entry is Dictionary and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+			var task_id := StringName(str(exp_entry.get("task_id", "")))
+			if Data.EXPEDITION_TASKS.has(task_id) and int(exp_entry.get("end_time", 0)) > 0:
+				save_dict["expedition"][str(mech_id)] = { "task_id": str(task_id), "end_time": int(exp_entry["end_time"]) }
+	# v0.21：生存（day / best_waves / reward_claimed）
+	var survival_src: Dictionary = snapshot.get("survival", {})
+	save_dict["survival"]["day"] = str(survival_src.get("day", ""))
+	save_dict["survival"]["best_waves"] = maxi(int(survival_src.get("best_waves", 0)), 0)
+	save_dict["survival"]["reward_claimed"] = int(survival_src.get("reward_claimed", -1))
+	# v0.21：家园互动（{mech_id: {day, count}}；只认已拥有机娘，count ≥ 0）
+	var home_interact_src: Dictionary = snapshot.get("home_interact", {})
+	for mech_id in home_interact_src:
+		var hi_entry: Variant = home_interact_src[mech_id]
+		if hi_entry is Dictionary and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+			save_dict["home_interact"][str(mech_id)] = {
+				"day": str(hi_entry.get("day", "")),
+				"count": maxi(int(hi_entry.get("count", 0)), 0),
+			}
 	# v0.17：字符串键数组（collection/achievement/title id）与好感映射
 	var collection_claimed_src: Variant = snapshot.get("collection_rewards_claimed", [])
 	if collection_claimed_src is Array:
@@ -573,6 +599,29 @@ func load_game() -> Dictionary:
 		result["daily_boss"]["day"] = str(daily_boss_src.get("day", ""))
 		result["daily_boss"]["damage"] = maxi(int(daily_boss_src.get("damage", 0)), 0)
 		result["daily_boss"]["reward_claimed"] = int(daily_boss_src.get("reward_claimed", -1))
+	# —— v0.21：远征 / 生存 / 家园 ——
+	var expedition_src: Variant = parsed_dict.get("expedition", {})
+	if expedition_src is Dictionary:
+		for mech_id in expedition_src:
+			var exp_entry: Variant = expedition_src[mech_id]
+			if exp_entry is Dictionary and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+				var task_id := StringName(str(exp_entry.get("task_id", "")))
+				if Data.EXPEDITION_TASKS.has(task_id) and int(exp_entry.get("end_time", 0)) > 0:
+					result["expedition"][StringName(str(mech_id))] = { "task_id": task_id, "end_time": int(exp_entry["end_time"]) }
+	var survival_src: Variant = parsed_dict.get("survival", {})
+	if survival_src is Dictionary:
+		result["survival"]["day"] = str(survival_src.get("day", ""))
+		result["survival"]["best_waves"] = maxi(int(survival_src.get("best_waves", 0)), 0)
+		result["survival"]["reward_claimed"] = int(survival_src.get("reward_claimed", -1))
+	var home_interact_src: Variant = parsed_dict.get("home_interact", {})
+	if home_interact_src is Dictionary:
+		for mech_id in home_interact_src:
+			var hi_entry: Variant = home_interact_src[mech_id]
+			if hi_entry is Dictionary and Data.MECH_GIRLS.has(StringName(str(mech_id))):
+				result["home_interact"][StringName(str(mech_id))] = {
+					"day": str(hi_entry.get("day", "")),
+					"count": maxi(int(hi_entry.get("count", 0)), 0),
+				}
 	return result
 
 ## 反序列化任务存储（progress 只认任务表 key；claimed 只认该任务表档位）
@@ -682,4 +731,8 @@ func _default_data() -> Dictionary:
 		"skins_unlocked": [],
 		"skin_equipped": {},
 		"daily_boss": { "day": "", "damage": 0, "reward_claimed": -1 },
+		# v0.21：远征 / 生存 / 家园（默认空）
+		"expedition": {},
+		"survival": { "day": "", "best_waves": 0, "reward_claimed": -1 },
+		"home_interact": {},
 	}
