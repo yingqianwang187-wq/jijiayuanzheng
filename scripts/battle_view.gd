@@ -252,7 +252,7 @@ func _on_retry_pressed() -> void:
 
 func _on_back_pressed() -> void:
 	Game.stop_battle()
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	queue_free()  # 4U 覆盖层：关闭回到原页
 
 
 func _reset_battle_ui() -> void:

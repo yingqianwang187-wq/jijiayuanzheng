@@ -45,11 +45,12 @@ func _on_challenge_pressed() -> void:
 		_message_label.text = "今日爬塔已达上限"
 		return
 	Game.start_tower()
-	get_tree().change_scene_to_file("res://scenes/Battle.tscn")
+	var battle_ps: PackedScene = load("res://scenes/Battle.tscn")
+	get_tree().root.add_child(battle_ps.instantiate())
 
 
 func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	queue_free()  # 4U 覆盖层：关闭回到原页
 
 
 ## ------------------------------------------------------------------

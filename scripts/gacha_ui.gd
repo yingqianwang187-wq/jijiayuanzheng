@@ -82,7 +82,7 @@ func _on_summon_pressed(times: int) -> void:
 
 
 func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+	queue_free()  # 4U 覆盖层：关闭回到原页
 
 
 ## ------------------------------------------------------------------

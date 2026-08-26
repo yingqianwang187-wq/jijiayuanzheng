@@ -33,7 +33,6 @@ const MainUI := preload("res://scripts/main_ui.gd")
 @onready var _story_tab_button: Button = $root_box/tab_row/story_tab_button
 @onready var _content_box: VBoxContainer = $root_box/scroll/content_box
 @onready var _message_label: Label = $root_box/message_label
-@onready var _back_button: Button = $root_box/back_button
 
 ## ---- UI 内部状态（仅当前页签，不含任何游戏数值）----
 var _tab: StringName = &"mech"   # &"mech" / &"achievement" / &"title" / &"story"
@@ -47,7 +46,6 @@ func _ready() -> void:
 	_achievement_tab_button.pressed.connect(_on_tab_pressed.bind(&"achievement"))
 	_title_tab_button.pressed.connect(_on_tab_pressed.bind(&"title"))
 	_story_tab_button.pressed.connect(_on_tab_pressed.bind(&"story"))
-	_back_button.pressed.connect(_on_back_pressed)
 	# 首屏只读快照（见文件头"首屏说明"）
 	_refresh_progress()
 	_build_tier_row()
@@ -218,9 +216,10 @@ func _make_mech_card(mech_id: StringName) -> Control:
 
 
 func _on_mech_card_pressed(mech_id: StringName) -> void:
-	# 经 main_ui.pending_mech_id 传递 mech_id 到详情页（UI 导航状态，非游戏数值）
+	# 4U：机娘详情 = 覆盖层（当前图鉴页之上弹出；经 main_ui.pending_mech_id 传递）
 	MainUI.pending_mech_id = mech_id
-	get_tree().change_scene_to_file("res://scenes/MechDetail.tscn")
+	var detail_ps: PackedScene = load("res://scenes/MechDetail.tscn")
+	get_tree().root.add_child(detail_ps.instantiate())
 
 
 ## ------------------------------------------------------------------
@@ -349,13 +348,6 @@ func _build_story_tab() -> void:
 		v.add_child(clear)
 		panel.add_child(v)
 		_content_box.add_child(panel)
-
-
-## ------------------------------------------------------------------
-## 返回
-## ------------------------------------------------------------------
-func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 
 ## ------------------------------------------------------------------

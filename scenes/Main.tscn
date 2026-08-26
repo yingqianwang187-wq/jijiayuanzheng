@@ -1,6 +1,9 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/main_ui.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/Formation.tscn" id="2_fmt"]
+[ext_resource type="PackedScene" path="res://scenes/Dungeon.tscn" id="3_dun"]
+[ext_resource type="PackedScene" path="res://scenes/Collection.tscn" id="4_col"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -18,9 +21,64 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.09, 0.11, 0.15, 1)
+color = Color(0.07, 0.09, 0.13, 1)
 
-[node name="root_box" type="VBoxContainer" parent="."]
+[node name="shell_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+
+[node name="top_bar" type="PanelContainer" parent="shell_box"]
+layout_mode = 2
+
+[node name="top_row" type="HBoxContainer" parent="shell_box/top_bar"]
+layout_mode = 2
+theme_override_constants/separation = 14
+alignment = 2
+
+[node name="gold_balance_label" type="Label" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "金币 0 (+0)"
+horizontal_alignment = 2
+
+[node name="exp_balance_label" type="Label" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "经验 0 (+0)"
+horizontal_alignment = 2
+
+[node name="diamond_label" type="Label" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "钻石 0"
+horizontal_alignment = 2
+
+[node name="stamina_label" type="Label" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "体力 100/100"
+horizontal_alignment = 2
+
+[node name="commander_label" type="Label" parent="shell_box/top_bar/top_row"]
+layout_mode = 2
+text = "指挥官 Lv.1"
+horizontal_alignment = 2
+
+[node name="page_container" type="Control" parent="shell_box"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="city_page" type="Control" parent="shell_box/page_container"]
+visible = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="city_box" type="VBoxContainer" parent="shell_box/page_container/city_page"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -31,176 +89,292 @@ offset_left = 24.0
 offset_top = 24.0
 offset_right = -24.0
 offset_bottom = -24.0
-theme_override_constants/separation = 10
+theme_override_constants/separation = 14
 
-[node name="balance_row" type="HBoxContainer" parent="root_box"]
+[node name="city_title" type="Label" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 16
-alignment = 2
-
-[node name="gold_balance_label" type="Label" parent="root_box/balance_row"]
-layout_mode = 2
-text = "金币 0 (+0)"
-horizontal_alignment = 2
-
-[node name="exp_balance_label" type="Label" parent="root_box/balance_row"]
-layout_mode = 2
-text = "经验 0 (+0)"
-horizontal_alignment = 2
-
-[node name="diamond_label" type="Label" parent="root_box/balance_row"]
-layout_mode = 2
-text = "钻石 0"
-horizontal_alignment = 2
-
-[node name="stamina_label" type="Label" parent="root_box/balance_row"]
-layout_mode = 2
-text = "体力 100/100"
-horizontal_alignment = 2
-
-[node name="commander_label" type="Label" parent="root_box/balance_row"]
-layout_mode = 2
-text = "指挥官 Lv.1"
-horizontal_alignment = 2
-
-[node name="title_label" type="Label" parent="root_box"]
-layout_mode = 2
-text = "机甲远征"
+text = "—— 主城 ——"
 horizontal_alignment = 1
 
-[node name="gold_label" type="Label" parent="root_box"]
+[node name="idle_rewards_label" type="Label" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
-text = "金币：0"
+text = "待收获：金币 +0 经验 +0"
 horizontal_alignment = 1
 
-[node name="idle_row" type="HBoxContainer" parent="root_box"]
+[node name="activity_title" type="Label" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="idle_rewards_label" type="Label" parent="root_box/idle_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "待收获：0 金币"
+text = "—— 活动栏 ——"
 horizontal_alignment = 1
 
-[node name="collect_button" type="Button" parent="root_box/idle_row"]
-layout_mode = 2
-text = "收获"
-
-[node name="challenge_button" type="Button" parent="root_box"]
-layout_mode = 2
-text = "挑战第 1 关"
-
-[node name="mech_section_label" type="Label" parent="root_box"]
-layout_mode = 2
-text = "—— 机娘小队 ——"
-horizontal_alignment = 1
-
-[node name="mech_count_label" type="Label" parent="root_box"]
-layout_mode = 2
-text = "机娘收集 0/30"
-horizontal_alignment = 1
-
-[node name="mech_box" type="ScrollContainer" parent="root_box"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="last_clear_label" type="Label" parent="root_box"]
-layout_mode = 2
-text = ""
-horizontal_alignment = 1
-
-[node name="message_label" type="Label" parent="root_box"]
-layout_mode = 2
-text = ""
-horizontal_alignment = 1
-
-[node name="feature_row" type="HBoxContainer" parent="root_box"]
+[node name="activity_row" type="HBoxContainer" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="dungeon_button" type="Button" parent="root_box/feature_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "秘境"
-
-[node name="bag_button" type="Button" parent="root_box/feature_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "背包"
-
-[node name="box_button" type="Button" parent="root_box/feature_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "开箱（0）"
-
-[node name="equipment_button" type="Button" parent="root_box/feature_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "装备"
-
-[node name="shop_button" type="Button" parent="root_box/feature_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "商城"
-
-[node name="settings_button" type="Button" parent="root_box/feature_row"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "设置"
-
-[node name="feature_row2" type="HBoxContainer" parent="root_box"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="tower_button" type="Button" parent="root_box/feature_row2"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "爬塔"
-
-[node name="task_button" type="Button" parent="root_box/feature_row2"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "任务"
-
-[node name="novice_button" type="Button" parent="root_box/feature_row2"]
+[node name="novice_button" type="Button" parent="shell_box/page_container/city_page/city_box/activity_row"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "新手福利"
 
-[node name="sign_button" type="Button" parent="root_box/feature_row2"]
+[node name="task_button" type="Button" parent="shell_box/page_container/city_page/city_box/activity_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "任务"
+
+[node name="sign_button" type="Button" parent="shell_box/page_container/city_page/city_box/activity_row"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "签到"
 
-[node name="activity_button" type="Button" parent="root_box/feature_row2"]
+[node name="activity_button" type="Button" parent="shell_box/page_container/city_page/city_box/activity_row"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "活动"
 
-[node name="bottom_row" type="HBoxContainer" parent="root_box"]
+[node name="building_title" type="Label" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
-theme_override_constants/separation = 10
+text = "—— 建筑 ——"
+horizontal_alignment = 1
 
-[node name="save_button" type="Button" parent="root_box/bottom_row"]
+[node name="building_grid" type="GridContainer" parent="shell_box/page_container/city_page/city_box"]
 layout_mode = 2
-size_flags_horizontal = 3
-text = "手动存档"
+columns = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 12
 
-[node name="gacha_button" type="Button" parent="root_box/bottom_row"]
+[node name="gacha_button" type="Button" parent="shell_box/page_container/city_page/city_box/building_grid"]
+custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "抽卡"
 
-[node name="formation_button" type="Button" parent="root_box/bottom_row"]
+[node name="shop_button" type="Button" parent="shell_box/page_container/city_page/city_box/building_grid"]
+custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
 size_flags_horizontal = 3
+text = "商城"
+
+[node name="craft_button" type="Button" parent="shell_box/page_container/city_page/city_box/building_grid"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "合成工坊"
+
+[node name="tower_button" type="Button" parent="shell_box/page_container/city_page/city_box/building_grid"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "爬塔"
+
+[node name="function_row" type="HBoxContainer" parent="shell_box/page_container/city_page/city_box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="collect_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "收获"
+
+[node name="box_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "开箱（0）"
+
+[node name="save_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "手动存档"
+
+[node name="settings_button" type="Button" parent="shell_box/page_container/city_page/city_box/function_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "设置"
+
+[node name="message_label" type="Label" parent="shell_box/page_container/city_page/city_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="formation_page" parent="shell_box/page_container" instance=ExtResource("2_fmt")]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="story_page" type="Control" parent="shell_box/page_container"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="story_box" type="VBoxContainer" parent="shell_box/page_container/story_page"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 14
+
+[node name="story_title" type="Label" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+text = "—— 主线 ——"
+horizontal_alignment = 1
+
+[node name="challenge_button" type="Button" parent="shell_box/page_container/story_page/story_box"]
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+text = "挑战第 1 关"
+
+[node name="story_progress_label" type="Label" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+text = "第 1 章：已通关 0/5 关"
+horizontal_alignment = 1
+
+[node name="story_last_clear_label" type="Label" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="story_hint_label" type="Label" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+text = "主线不可选关、不可扫荡；通关解锁下一关，首通掉落金币/钻石/小钰碎片"
+horizontal_alignment = 1
+
+[node name="dungeon_page" parent="shell_box/page_container" instance=ExtResource("3_dun")]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="mech_page" type="Control" parent="shell_box/page_container"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="mech_box_panel" type="VBoxContainer" parent="shell_box/page_container/mech_page"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
+theme_override_constants/separation = 8
+
+[node name="mech_title" type="Label" parent="shell_box/page_container/mech_page/mech_box_panel"]
+layout_mode = 2
+text = "—— 机娘 ——"
+horizontal_alignment = 1
+
+[node name="mech_count_label" type="Label" parent="shell_box/page_container/mech_page/mech_box_panel"]
+layout_mode = 2
+text = "机娘收集 0/30"
+horizontal_alignment = 1
+
+[node name="filter_row" type="HBoxContainer" parent="shell_box/page_container/mech_page/mech_box_panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="filter_all_button" type="Button" parent="shell_box/page_container/mech_page/mech_box_panel/filter_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+button_pressed = true
+text = "全部"
+
+[node name="filter_r_button" type="Button" parent="shell_box/page_container/mech_page/mech_box_panel/filter_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "R"
+
+[node name="filter_sr_button" type="Button" parent="shell_box/page_container/mech_page/mech_box_panel/filter_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "SR"
+
+[node name="filter_ssr_button" type="Button" parent="shell_box/page_container/mech_page/mech_box_panel/filter_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "SSR"
+
+[node name="mech_box" type="ScrollContainer" parent="shell_box/page_container/mech_page/mech_box_panel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="collection_page" parent="shell_box/page_container" instance=ExtResource("4_col")]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="nav_bar" type="PanelContainer" parent="shell_box"]
+layout_mode = 2
+
+[node name="nav_row" type="HBoxContainer" parent="shell_box/nav_bar"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="nav_city_button" type="Button" parent="shell_box/nav_bar/nav_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+button_pressed = true
+text = "主城"
+
+[node name="nav_formation_button" type="Button" parent="shell_box/nav_bar/nav_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
 text = "布阵"
 
-[node name="collection_button" type="Button" parent="root_box/bottom_row"]
+[node name="nav_story_button" type="Button" parent="shell_box/nav_bar/nav_row"]
 layout_mode = 2
 size_flags_horizontal = 3
+toggle_mode = true
+text = "主线"
+
+[node name="nav_dungeon_button" type="Button" parent="shell_box/nav_bar/nav_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "秘境"
+
+[node name="nav_mech_button" type="Button" parent="shell_box/nav_bar/nav_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "机娘"
+
+[node name="nav_collection_button" type="Button" parent="shell_box/nav_bar/nav_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
 text = "图鉴"
 
 [node name="guide_layer" type="Control" parent="."]

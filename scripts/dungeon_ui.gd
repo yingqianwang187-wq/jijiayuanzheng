@@ -2,16 +2,16 @@
 # scripts/dungeon_ui.gd —— 秘境界面脚本（挂在 scenes/Dungeon.tscn 根节点）
 # 作者   ：C（画面 + 界面）
 # 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.10（v0.13）、scripts/contract.gd（只读）
-# 职责   ：秘境界面的纯显示层 + 挑战/扫荡入口。
+# 职责   ：秘境页（4U 起作为主界面"秘境"主页面嵌入，无返回按钮）的纯显示层 + 挑战/扫荡入口。
 #          - 连接信号：stamina_changed / dungeon_cleared_changed / dungeon_reward
-#          - 按钮只调入口（契约 §3.6）：挑战 → Game.start_dungeon(kind, tier) 后切 Battle.tscn；
-#            扫荡 → Game.sweep_dungeon(kind, tier)；返回 → 切回 Main.tscn
+#          - 按钮只调入口（契约 §3.6）：挑战 → Game.start_dungeon(kind, tier) 后打开战斗覆盖层
+#            Battle.tscn；扫荡 → Game.sweep_dungeon(kind, tier)
 #          - 只读入口：Game.dungeon_cost / get_dungeon_status / get_stamina / get_formation /
 #            Game.get_power（上阵战力 = 阵型各机娘战力合计，与 Game._team_power 同源）
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit、
 #          一切更新值以 Game 信号参数为准，UI 不缓存游戏数值。
-# 列表   ：Data.DUNGEONS（5 副本 × 5 档）驱动；档位 tier 0~4 = 新手/简单/中等/困难/地狱；
-#          已通关档显示"已通关"、挑战禁用、扫荡可用（仅已通关可扫荡）。
+# 列表   ：Data.DUNGEONS（5 副本 × 5 档）驱动，顶部页签切换副本（§1.6 ⑪）；
+#          档位 tier 0~4 = 新手/简单/中等/困难/地狱；已通关档"已通关"、挑战禁用、扫荡可用。
 # ==================================================================
 extends Control
 
@@ -20,19 +20,50 @@ const _TIER_NAMES := ["新手", "简单", "中等", "困难", "地狱"]
 
 ## ---- 节点引用（与 scenes/Dungeon.tscn 结构一一对应）----
 @onready var _stamina_label: Label = $root_box/stamina_label
+@onready var _tab_row: HBoxContainer = $root_box/tab_row
 @onready var _list_box: VBoxContainer = $root_box/list_box
 @onready var _message_label: Label = $root_box/message_label
-@onready var _back_button: Button = $root_box/back_button
+
+## ---- UI 内部状态（仅当前副本页签，不含任何游戏数值）----
+var _active_kind: StringName = &"gold"
+var _tab_buttons: Dictionary = {}   # kind -> Button
 
 
 func _ready() -> void:
 	Contract.stamina_changed.connect(_on_stamina_changed)
 	Contract.dungeon_cleared_changed.connect(_on_dungeon_cleared_changed)
 	Contract.dungeon_reward.connect(_on_dungeon_reward)
-	_back_button.pressed.connect(_on_back_pressed)
+	_build_tabs()
 	# 首屏只读快照（契约 §3.1"首屏铺底例外"）
 	_stamina_label.text = "体力：%d/%d" % [Game.get_stamina(), Data.STAMINA_MAX]
 	_refresh_list()
+
+
+## 副本页签（§1.6 ⑪：金币|经验|装备|宝石|碎片），动态构建
+func _build_tabs() -> void:
+	var kinds: Array = Data.DUNGEONS.keys()
+	for kind in kinds:
+		var kind_id := StringName(kind)
+		var cfg: Dictionary = Data.DUNGEONS[kind_id]
+		var btn := Button.new()
+		btn.text = str(cfg.get("name", str(kind_id)))
+		btn.toggle_mode = true
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(_on_tab_pressed.bind(kind_id))
+		_tab_row.add_child(btn)
+		_tab_buttons[kind_id] = btn
+	_refresh_tab_states()
+
+
+func _on_tab_pressed(kind: StringName) -> void:
+	_active_kind = kind
+	_refresh_tab_states()
+	_refresh_list()
+
+
+func _refresh_tab_states() -> void:
+	for kind in _tab_buttons:
+		_tab_buttons[kind].button_pressed = (kind == _active_kind)
 
 
 ## ------------------------------------------------------------------
@@ -72,7 +103,8 @@ func _on_challenge_pressed(kind: StringName, tier: int) -> void:
 		_message_label.text = "体力不足"
 		return
 	Game.start_dungeon(kind, tier)
-	get_tree().change_scene_to_file("res://scenes/Battle.tscn")
+	var battle_ps: PackedScene = load("res://scenes/Battle.tscn")
+	get_tree().root.add_child(battle_ps.instantiate())
 
 
 func _on_sweep_pressed(kind: StringName, tier: int) -> void:
@@ -80,29 +112,22 @@ func _on_sweep_pressed(kind: StringName, tier: int) -> void:
 	Game.sweep_dungeon(kind, tier)
 
 
-func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
-
-
 ## ------------------------------------------------------------------
-## 秘境列表（Data.DUNGEONS 驱动，动态构建）
+## 秘境列表（§1.6 ⑪：当前页签副本 × 5 档行，动态构建）
 ## ------------------------------------------------------------------
 func _refresh_list() -> void:
 	for child in _list_box.get_children():
 		_list_box.remove_child(child)
 		child.queue_free()
-	var power := _team_power()
-	for kind in Data.DUNGEONS:
-		var cfg: Dictionary = Data.DUNGEONS[kind]
-		var section := VBoxContainer.new()
-		section.add_theme_constant_override("separation", 4)
-		var title := Label.new()
-		title.text = "—— %s ——（上阵战力 %s）" % [str(cfg.get("name", str(kind))), _format_num(power)]
-		section.add_child(title)
-		var tiers: Array = cfg.tiers
-		for i in tiers.size():
-			section.add_child(_make_tier_row(kind, i, tiers[i]))
-		_list_box.add_child(section)
+	if not Data.DUNGEONS.has(_active_kind):
+		return
+	var cfg: Dictionary = Data.DUNGEONS[_active_kind]
+	var title := Label.new()
+	title.text = "—— %s ——（上阵战力 %s）" % [str(cfg.get("name", str(_active_kind))), _format_num(_team_power())]
+	_list_box.add_child(title)
+	var tiers: Array = cfg.tiers
+	for i in tiers.size():
+		_list_box.add_child(_make_tier_row(_active_kind, i, tiers[i]))
 
 
 func _make_tier_row(kind: StringName, tier: int, tier_cfg: Dictionary) -> HBoxContainer:

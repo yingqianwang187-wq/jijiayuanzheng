@@ -48,14 +48,15 @@ layout_mode = 2
 text = "挑战未通关档（首免体力）；通关后可扫荡（10 体力）"
 horizontal_alignment = 1
 
+[node name="tab_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
 [node name="list_box" type="VBoxContainer" parent="root_box"]
 layout_mode = 2
+size_flags_vertical = 3
 
 [node name="message_label" type="Label" parent="root_box"]
 layout_mode = 2
 text = ""
 horizontal_alignment = 1
-
-[node name="back_button" type="Button" parent="root_box"]
-layout_mode = 2
-text = "返回主界面"

@@ -2,14 +2,16 @@
 # scripts/formation_ui.gd —— 布阵界面脚本（挂在 scenes/Formation.tscn 根节点）
 # 作者   ：C（画面 + 界面）
 # 依据   ：docs/契约.md §3.1 / §3.5 / §3.6 / §3.9（v0.8）、scripts/contract.gd（只读）
-# 职责   ：布阵界面的纯显示层 + 编辑草稿。
+# 职责   ：布阵页（4U 起作为主界面"布阵"主页面嵌入，无返回按钮）的纯显示层 + 编辑草稿。
 #          - 连接信号：formation_changed（阵型变化，以信号为准刷新显示）
 #          - 按钮只调入口（契约 §3.6）：保存阵型 → Game.set_formation(draft)；
 #            预设保存/载入 → Game.save_formation_preset(index, draft) /
-#                          Game.load_formation_preset(index)；返回 → 切回 Main.tscn
-#          - 只读入口：Game.get_formation()（首屏快照 / 信号到达后同步）
+#                          Game.load_formation_preset(index)；开始战斗 → Game.set_formation(draft)
+#                          + Game.start_battle(get_next_level()) + 打开战斗覆盖层 Battle.tscn
+#          - 只读入口：Game.get_formation()（首屏快照 / 信号到达后同步）；上阵战力 =
+#            Game.get_formation + Game.get_power 只读组合（与 Game._team_power 同公式）
 # 铁律   ：（契约 §3.1 红线）本文件无任何数值赋值（gold= / hp= 等）、无 emit；
-#          草稿为 UI 编辑态，仅在"保存阵型"时提交给 Game，显示以信号为准。
+#          草稿为 UI 编辑态，仅在"保存阵型"/"开始战斗"时提交给 Game，显示以信号为准。
 # 交互   ：候选列表点选机娘 → 点九宫格放置/替换；不选机娘点已占格 = 移除。
 # ==================================================================
 extends Control
@@ -20,7 +22,8 @@ extends Control
 @onready var _preset_box: VBoxContainer = $root_box/preset_box
 @onready var _save_button: Button = $root_box/save_button
 @onready var _message_label: Label = $root_box/message_label
-@onready var _back_button: Button = $root_box/back_button
+@onready var _power_label: Label = $root_box/bottom_row/power_label
+@onready var _start_button: Button = $root_box/bottom_row/start_button
 
 ## ---- UI 编辑态（草稿，非 Game 数值；提交后以 formation_changed 为准）----
 var _cells: Array = []                     # 9 个格子 Button（索引 = row*3+col）
@@ -31,7 +34,7 @@ var _selected_mech: StringName = &""       # 候选列表中当前选中的机�
 func _ready() -> void:
 	Contract.formation_changed.connect(_on_formation_changed)
 	_save_button.pressed.connect(_on_save_pressed)
-	_back_button.pressed.connect(_on_back_pressed)
+	_start_button.pressed.connect(_on_start_pressed)
 	_build_grid()
 	_build_presets()
 	# 首屏只读快照（契约 §3.1"首屏铺底例外"）：草稿 = 当前阵型
@@ -60,8 +63,16 @@ func _on_save_pressed() -> void:
 		_message_label.text = "最多放置 5 名机娘"
 
 
-func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+func _on_start_pressed() -> void:
+	# 4U：先提交草稿（校验失败不发信号），再开始主线战斗并打开战斗覆盖层
+	Game.set_formation(_draft)
+	var level: int = Game.get_next_level()
+	if level < 1 or level > Data.MAX_LEVEL:
+		_message_label.text = "主线已全部通关"
+		return
+	Game.start_battle(level)
+	var battle_ps: PackedScene = load("res://scenes/Battle.tscn")
+	get_tree().root.add_child(battle_ps.instantiate())
 
 
 ## ------------------------------------------------------------------
@@ -101,6 +112,32 @@ func _on_cell_pressed(index: int) -> void:
 func _refresh_all() -> void:
 	_refresh_grid()
 	_refresh_candidates()
+	_refresh_power()
+
+
+## 上阵战力 = 草稿阵型各机娘战力合计（Game.get_power 只读入口组合，与 Game._team_power 同公式）
+func _refresh_power() -> void:
+	var total := 0
+	for slot in _draft:
+		var mid := StringName(str(slot.get("id", "")))
+		if mid != &"":
+			total += Game.get_power(mid)
+	_power_label.text = "上阵战力：%s" % _fmt_num(total)
+
+
+## 千分位格式化（纯显示，不修改任何数值）
+func _fmt_num(n: int) -> String:
+	var s := str(abs(n))
+	var out := ""
+	var count := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		count += 1
+		if count % 3 == 0 and i > 0:
+			out = "," + out
+	if n < 0:
+		out = "-" + out
+	return out
 
 
 func _refresh_grid() -> void:
