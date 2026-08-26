@@ -257,6 +257,12 @@ layout_mode = 2
 text = ""
 horizontal_alignment = 1
 
+[node name="story_lines_label" type="Label" parent="shell_box/page_container/story_page/story_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+autowrap_mode = 2
+
 [node name="story_hint_label" type="Label" parent="shell_box/page_container/story_page/story_box"]
 layout_mode = 2
 text = "主线不可选关、不可扫荡；通关解锁下一关，首通掉落金币/钻石/小钰碎片"

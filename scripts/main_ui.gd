@@ -76,6 +76,7 @@ const PAGE_COLLECTION := 5
 @onready var _challenge_button: Button = $shell_box/page_container/story_page/story_box/challenge_button
 @onready var _story_progress_label: Label = $shell_box/page_container/story_page/story_box/story_progress_label
 @onready var _story_last_clear_label: Label = $shell_box/page_container/story_page/story_box/story_last_clear_label
+@onready var _story_lines_label: Label = $shell_box/page_container/story_page/story_box/story_lines_label
 # 全局消息（壳层，所有页面可见）
 @onready var _message_label: Label = $shell_box/message_label
 # 机娘页
@@ -295,14 +296,21 @@ func _on_level_cleared(level: int, first_clear: bool) -> void:
 		var reward: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward", 0))
 		var diamond: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward_diamond", 0))
 		_message_label.text = "首通奖励：金币 +%d 钻石 +%d 小钰碎片 ×%d" % [reward, diamond, _first_clear_frag(level)]
+		# v0.23 章节台词：章末（BOSS）通关显示 clear 台词
+		var clear_line: String = str(Data.STORY_LINES.get(level, {}).get("clear", ""))
+		if clear_line != "":
+			_story_lines_label.text = clear_line
 	else:
 		_message_label.text = "第 %d 关已通关" % level
 	_refresh_story_progress()
+	# 注意：不在此调 _refresh_story_lines——clear 台词通关瞬间显示，
+	# 下一关 opening 由 _on_level_progress_changed / 首屏快照时刷新，避免互相覆盖
 
 
 func _on_level_progress_changed(_level: int) -> void:
 	_refresh_challenge()
 	_refresh_story_progress()
+	_refresh_story_lines()
 
 
 func _on_battle_star(star: int) -> void:
@@ -476,7 +484,7 @@ func _format_num(n: int) -> String:
 
 
 ## ------------------------------------------------------------------
-## 主线页（挑战 N 关 + 章节进度）
+## 主线页（v0.23：挑战按章节显示"第 N 章 · 第 M 关" + 章节进度 + 章节台词）
 ## ------------------------------------------------------------------
 func _refresh_challenge() -> void:
 	var next: int = Game.get_next_level()
@@ -484,24 +492,93 @@ func _refresh_challenge() -> void:
 		_challenge_button.text = "主线已全部通关"
 		_challenge_button.disabled = true
 	else:
-		_challenge_button.text = "挑战第 %d 关" % next
+		var info: Dictionary = _chapter_of_level(next)
+		if info.is_empty():
+			_challenge_button.text = "挑战第 %d 关" % next
+		else:
+			_challenge_button.text = "挑战 第%d章·第%d关" % [int(info.chapter), int(info.index)]
 		_challenge_button.disabled = false
 
 
 func _refresh_story_progress() -> void:
-	var cleared: int = Game.cleared_levels.size()
-	var chapter: Dictionary = Data.CHAPTERS.get(1, {})
-	_story_progress_label.text = "第 1 章：已通关 %d/%d 关" % [cleared, int(chapter.get("levels", Data.MAX_LEVEL))]
+	# v0.23：按当前最高未通关关所在章显示章节进度（章内已通关数 + 跨章总进度）
+	var next: int = Game.get_next_level()
+	var total_cleared: int = Game.cleared_levels.size()
+	if next > Data.MAX_LEVEL:
+		_story_progress_label.text = "全部章节通关（共 %d 关）" % Data.MAX_LEVEL
+	else:
+		var info: Dictionary = _chapter_of_level(next)
+		var chapter_cfg: Dictionary = info.get("cfg", {})
+		var chapter: int = int(info.get("chapter", 1))
+		var start: int = _chapter_start_level(chapter)
+		var chapter_levels: int = int(chapter_cfg.get("levels", 5))
+		var chapter_cleared := 0
+		for l in Game.cleared_levels:
+			var lv := int(l)
+			if lv >= start and lv < start + chapter_levels:
+				chapter_cleared += 1
+		_story_progress_label.text = "第 %d 章：已通关 %d/%d 关（总 %d/%d）" % [chapter, chapter_cleared, chapter_levels, total_cleared, Data.MAX_LEVEL]
 	if not Game.last_clear.is_empty():
 		var lc: Dictionary = Game.last_clear
 		var level: int = int(lc.get("level", 0))
 		var star: int = int(Game.level_stars.get(level, 0))
+		var level_text: String = _level_display_text(level)
 		if bool(lc.get("first_clear", false)):
 			var reward: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward", 0))
 			var diamond: int = int(Data.LEVELS.get(level, {}).get("first_clear_reward_diamond", 0))
-			_story_last_clear_label.text = "上次通关：第 %d 关（首通）★%d 奖励：金币+%d 钻石+%d 小钰碎片×%d" % [level, star, reward, diamond, _first_clear_frag(level)]
+			_story_last_clear_label.text = "上次通关：%s（首通）★%d 奖励：金币+%d 钻石+%d 小钰碎片×%d" % [level_text, star, reward, diamond, _first_clear_frag(level)]
 		else:
-			_story_last_clear_label.text = "上次通关：第 %d 关（重复通关）★%d" % [level, star]
+			_story_last_clear_label.text = "上次通关：%s（重复通关）★%d" % [level_text, star]
+
+
+## 章节台词（v0.23）：当前最高未通关关的 opening（章首首次进入显示，未通关时）
+func _refresh_story_lines() -> void:
+	var next: int = Game.get_next_level()
+	if next >= 1 and next <= Data.MAX_LEVEL and not Game.cleared_levels.has(next):
+		var opening: String = str(Data.STORY_LINES.get(next, {}).get("opening", ""))
+		if opening != "":
+			_story_lines_label.text = opening
+			return
+	_story_lines_label.text = ""
+
+
+## ------------------------------------------------------------------
+## 章节工具（Data.CHAPTERS：第 1 章 5 关、第 2~5 章各 10 关，共 45 关；跨章连续推进）
+## ------------------------------------------------------------------
+## level 所在章信息 {chapter, index, cfg}（章内第几关）
+func _chapter_of_level(level: int) -> Dictionary:
+	for chapter in Data.CHAPTERS:
+		var cfg: Dictionary = Data.CHAPTERS[chapter]
+		var start: int = _chapter_start_level(int(chapter))
+		var end: int = start + int(cfg.get("levels", 0)) - 1
+		if level >= start and level <= end:
+			return { "chapter": int(chapter), "index": level - start + 1, "cfg": cfg }
+	return {}
+
+
+## 章起始关卡号（第 1 章 = 1，逐章累加）
+func _chapter_start_level(chapter: int) -> int:
+	var start := 1
+	for ch in Data.CHAPTERS:
+		if int(ch) < chapter:
+			start += int(Data.CHAPTERS[ch].get("levels", 0))
+	return start
+
+
+## 该关是否为章节 BOSS 关（任意章 boss_level 命中）
+func _is_boss_level(level: int) -> bool:
+	for chapter in Data.CHAPTERS:
+		if int(Data.CHAPTERS[chapter].get("boss_level", 0)) == level:
+			return true
+	return false
+
+
+## 关卡显示文案："第 N 章 · 第 M 关"
+func _level_display_text(level: int) -> String:
+	var info: Dictionary = _chapter_of_level(level)
+	if info.is_empty():
+		return "第 %d 关" % level
+	return "第%d章·第%d关" % [int(info.chapter), int(info.index)]
 
 
 ## ------------------------------------------------------------------
@@ -665,12 +742,13 @@ func _seed_initial_state() -> void:
 	_refresh_mech_count()
 	_refresh_challenge()
 	_refresh_story_progress()
+	_refresh_story_lines()
 	_refresh_guide()
 
 
-## 首通小钰碎片数（普通关 1 片 / 章节 BOSS 关 3 片；Data 常量，只读）
+## 首通小钰碎片数（普通关 1 片 / 章节 BOSS 关 3 片；Data 常量，只读；v0.23 多章 boss 判断）
 func _first_clear_frag(level: int) -> int:
-	if int(Data.CHAPTERS.get(1, {}).get("boss_level", 0)) == level:
+	if _is_boss_level(level):
 		return Data.XIAOYU_FRAGMENT_BOSS
 	return Data.XIAOYU_FRAGMENT_FIRST_CLEAR
 
