@@ -14,6 +14,8 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.22（阶段 5 第三批：日常转盘+节日活动，设计文档 v0.23 §10.8/§10.9）：
+#       新增信号 spin_changed / festival_changed；术语新增 spin / festival。
 #   v0.21（阶段 5 第二批：远征+生存模式+家园互动，设计文档 v0.23 §10.7）：
 #       新增信号 expedition_changed / survival_changed / home_changed；
 #       术语新增 expedition / survival / home；
@@ -81,7 +83,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.21"
+const CONTRACT_VERSION := "v0.22"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -179,6 +181,10 @@ const TERM_EXPEDITION := "expedition"    # 远征/派遣（1~8 小时任务，�
 const TERM_SURVIVAL   := "survival"      # 生存模式（无限波次、每日 1 次）
 const TERM_HOME       := "home"          # 家园互动（机娘休息互动、好感关联）
 
+# ---- 阶段 5 转盘/节日术语（设计文档 §10.8 / §10.9，v0.22）----
+const TERM_SPIN      := "spin"           # 日常转盘（每日 1 次免费，钻石续转）
+const TERM_FESTIVAL  := "festival"       # 节日活动（日历触发、任务+奖励）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -256,3 +262,7 @@ signal daily_boss_changed(damage: int, day: String)                           # 
 signal expedition_changed(expedition: Dictionary)                             # 远征变化（派遣/到期领取后）
 signal survival_changed(day: String, best_waves: int)                         # 生存模式变化（挑战后最佳波数/当日）
 signal home_changed(id: StringName, count: int)                               # 家园互动变化（互动次数）
+
+# ---- 阶段 5 转盘/节日信号（v0.22）----
+signal spin_changed(reward: Dictionary)                                       # 转盘结果（展示用；入账走既有信号）
+signal festival_changed(festivals: Array)                                     # 节日活动变化（达成/领奖后）
