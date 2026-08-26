@@ -82,6 +82,14 @@ var task_weekly: Dictionary = { "progress": {}, "claimed": [] }   # 每周任务
 var novice_progress: Dictionary = {}              # 新手 7 日进度 {day: {task_id: count}}
 var novice_claimed: Array = []                    # 已领新手奖励的天 [day]
 
+## v0.17：图鉴 / 成就 / 称号 / 好感
+var collection_rewards_claimed: Array = []        # 已领图鉴档位 [10/20/30]
+var achievements_claimed: Array = []              # 已领成就 [StringName id]
+var titles_unlocked: Array = []                   # 已解锁称号 [StringName id]
+var title_equipped: StringName = &""              # 当前佩戴称号（空 = 未佩戴）
+var affinity: Dictionary = {}                     # 好感 {mech_id: int 0~100}
+var _total_summon_count: int = 0                  # 累计抽卡次数（成就 progress 用；入档）
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -328,6 +336,42 @@ func _load_initial_state() -> void:
 			var d := int(day)
 			if d >= 1 and d <= 7:
 				novice_claimed.append(d)
+	# —— v0.17：图鉴 / 成就 / 称号 / 好感 ——
+	collection_rewards_claimed = []
+	var col_claimed_data: Variant = data.get("collection_rewards_claimed", [])
+	if col_claimed_data is Array:
+		for t in col_claimed_data:
+			var tier := int(t)
+			if Data.COLLECTION_REWARDS.has(tier):
+				collection_rewards_claimed.append(tier)
+	achievements_claimed = []
+	var ach_claimed_data: Variant = data.get("achievements_claimed", [])
+	if ach_claimed_data is Array:
+		for a in ach_claimed_data:
+			var aid := StringName(str(a))
+			if Data.ACHIEVEMENTS.has(aid):
+				achievements_claimed.append(aid)
+	titles_unlocked = []
+	var titles_data: Variant = data.get("titles_unlocked", [])
+	if titles_data is Array:
+		for t2 in titles_data:
+			var tid := StringName(str(t2))
+			if Data.TITLES.has(tid):
+				titles_unlocked.append(tid)
+	title_equipped = &""
+	var equipped_data: Variant = data.get("title_equipped", "")
+	if StringName(str(equipped_data)) != &"" and Data.TITLES.has(StringName(str(equipped_data))):
+		title_equipped = StringName(str(equipped_data))
+	affinity.clear()
+	var affinity_data: Variant = data.get("affinity", {})
+	if affinity_data is Dictionary:
+		for mech_id in affinity_data:
+			if Data.MECH_GIRLS.has(StringName(str(mech_id))):
+				affinity[StringName(str(mech_id))] = clampi(int(affinity_data[mech_id]), 0, Data.AFFINITY_MAX)
+	_total_summon_count = maxi(int(data.get("total_summon_count", 0)), 0)
+	# 成就 / 称号自动检查（新档启动时同步状态）
+	_check_achievements()
+	_check_titles()
 	# 商城跨日刷新（清已购）
 	_check_shop_refresh()
 	# 每日重置（跨日清体力购买/爬塔日限/每日任务/签到断签；每周一清周任务）+ 离线体力恢复结算
@@ -380,6 +424,10 @@ func _emit_initial_state() -> void:
 	Contract.sign_changed.emit(sign_days)
 	Contract.task_changed.emit(task_daily, task_weekly)
 	Contract.novice_changed.emit(_current_novice_day(), novice_progress, novice_claimed)
+	# v0.17：图鉴 / 成就 / 称号 / 好感
+	Contract.collection_changed.emit(_collection_count())
+	Contract.achievement_changed.emit(_achievement_list())
+	Contract.title_changed.emit(titles_unlocked, title_equipped)
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -396,13 +444,18 @@ func _mech_stats(mech_id: StringName) -> Dictionary:
 	var base_def: float = float(int(cfg.base_def) + (level - 1) * int(g.def)) * star_mult
 	var base_spd: float = float(int(cfg.base_spd) + spd_gain) * star_mult
 	var es := _mech_equip_stats(mech_id)
+	var title_bonus := _equipped_title_bonus()
+	# 好感满级加成（攻击 +5%）+ 称号属性（百分比，全队生效；v0.17）
+	var atk_mult: float = 1.0 + float(es.atk_pct) + float(title_bonus.atk_pct) + _affinity_bonus_atk(mech_id)
+	var hp_mult: float = 1.0 + float(es.hp_pct) + float(title_bonus.hp_pct)
+	var def_mult: float = 1.0 + float(es.def_pct) + float(title_bonus.def_pct)
 	return {
 		"level": level,
 		"star": star,
-		"hp": int(round(base_hp * (1.0 + float(es.hp_pct)) + float(es.hp))),
-		"atk": int(round(base_atk * (1.0 + float(es.atk_pct)) + float(es.atk))),
-		"def": int(round(base_def * (1.0 + float(es.def_pct)) + float(es.def))),
-		"spd": int(round(base_spd + float(es.spd))),
+		"hp": int(round(base_hp * hp_mult + float(es.hp))),
+		"atk": int(round(base_atk * atk_mult + float(es.atk))),
+		"def": int(round(base_def * def_mult + float(es.def))),
+		"spd": int(round(base_spd + float(es.spd) + float(title_bonus.spd))),
 		"crit_rate": float(es.crit_rate),
 		"crit_dmg": float(es.crit_dmg),
 		"dodge": float(es.dodge),
@@ -1360,6 +1413,10 @@ func _resolve_victory() -> void:
 	_bump_task("daily", &"story_levels")
 	_bump_task("weekly", &"story_total")
 	_bump_novice(&"story_count")
+	# v0.17：出战胜利好感 +1 + 成就/称号自动检查
+	_gain_battle_affinity()
+	_check_achievements()
+	_check_titles()
 	Contract.battle_star.emit(star)
 	Contract.level_cleared.emit(level, first_clear)
 	Save.save_game()
@@ -1433,6 +1490,7 @@ func _resolve_dungeon_victory() -> void:
 		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
 	Contract.dungeon_reward.emit(kind, tier, rewards)
 	# last_clear 仅供主线通关显示（主界面"上次通关"），秘境反馈已走 dungeon_reward 信号，不写 last_clear
+	_gain_battle_affinity()  # v0.17：出战胜利好感 +1
 	Save.save_game()
 
 ## 失败：发 battle_failed → 停止战斗，可重试
@@ -1562,6 +1620,8 @@ func summon(pool: StringName, times: int) -> void:
 	var first_ten_pity: bool = (pool == &"novice" and times == 10 and not novice_first_ten_done)
 	if first_ten_pity:
 		novice_first_ten_done = true
+	# 累计抽卡次数（成就 progress 用，v0.17）
+	_total_summon_count += times
 	# 1. 生成原始结果 id 列表（含 SSR 80 保底 / 首十连保底）
 	var raw_ids: Array = []
 	for i in times:
@@ -1585,6 +1645,8 @@ func summon(pool: StringName, times: int) -> void:
 	_bump_task("daily", &"summon")
 	_bump_task("weekly", &"summon_total")
 	_bump_novice(&"summon_count")
+	# v0.17：抽卡成就自动检查
+	_check_achievements()
 	Save.save_game()
 
 ## 单抽内部：SSR 80 保底累计 + 按概率抽一个机娘（契约 §3.8）
@@ -1647,6 +1709,10 @@ func _apply_summon_result(mech_id: StringName) -> Dictionary:
 		mech_exp[mech_id] = 0
 		mech_stars[mech_id] = 1
 		entry["is_new"] = true
+		# v0.17：新机娘入图鉴（collection_changed）+ 成就/称号自动检查
+		Contract.collection_changed.emit(_collection_count())
+		_check_achievements()
+		_check_titles()
 	return entry
 
 ## ---------------------------------------------------------------
@@ -2657,6 +2723,10 @@ func _resolve_tower_victory() -> void:
 	_bump_task("daily", &"tower")
 	_bump_task("weekly", &"tower_total")
 	_bump_novice(&"tower_count")
+	# v0.17：出战胜利好感 +1 + 成就/称号自动检查
+	_gain_battle_affinity()
+	_check_achievements()
+	_check_titles()
 	Contract.tower_changed.emit(tower_highest, tower_daily_count)
 	Save.save_game()
 
@@ -2818,6 +2888,171 @@ func _refresh_novice_power() -> void:
 				changed = true
 	if changed:
 		Contract.novice_changed.emit(_current_novice_day(), novice_progress, novice_claimed)
+	# v0.17：战力变化 → 成就/称号自动检查
+	_check_achievements()
+	_check_titles()
+
+## ================================================================
+## v0.17：图鉴（契约 §3.14 / 设计文档 §10.4）
+## ================================================================
+## 已收集机娘数（owned 中 Data 存在数）
+func _collection_count() -> int:
+	return owned_mechs.size()
+
+## 只读：图鉴信息（契约 §3.6 入口，v0.17）
+func get_collection_info() -> Dictionary:
+	return { "count": _collection_count(), "total": Data.MECH_GIRLS.size(), "claimed": collection_rewards_claimed }
+
+## 领取图鉴档位奖励（契约 §3.6 入口，v0.17）：集齐 10/20/30 位
+func claim_collection_reward(tier: int) -> void:
+	if not Data.COLLECTION_REWARDS.has(tier) or collection_rewards_claimed.has(tier):
+		return
+	if _collection_count() < tier:
+		return
+	for reward in Data.COLLECTION_REWARDS[tier]:
+		_grant_task_reward(reward)
+	collection_rewards_claimed.append(tier)
+	Contract.collection_changed.emit(_collection_count())
+	Save.save_game()
+
+## ================================================================
+## v0.17：成就（契约 §3.14 / 设计文档 §10.13，12 个）
+## ================================================================
+## 成就当前进度（type: story_cleared / summon_count / power / tower / collection）
+func _achievement_progress(type: String) -> int:
+	match type:
+		"story_cleared":
+			return cleared_levels.size()
+		"summon_count":
+			return _total_summon_count
+		"power":
+			return _team_power()
+		"tower":
+			return tower_highest
+		"collection":
+			return _collection_count()
+	return 0
+
+## 成就列表（含 progress / done / claimed，供 UI 与信号）
+func _achievement_list() -> Array:
+	var result: Array = []
+	for aid in Data.ACHIEVEMENTS:
+		var cfg: Dictionary = Data.ACHIEVEMENTS[aid]
+		var progress: int = _achievement_progress(str(cfg.type))
+		result.append({
+			"id": aid,
+			"name": str(cfg.name),
+			"desc": str(cfg.desc),
+			"progress": progress,
+			"target": int(cfg.target),
+			"done": progress >= int(cfg.target),
+			"claimed": achievements_claimed.has(aid),
+		})
+	return result
+
+## 成就自动检查（动作处调用；达成状态即时可算，此函数用于刷新 UI 状态）
+func _check_achievements() -> void:
+	Contract.achievement_changed.emit(_achievement_list())
+
+## 只读：成就信息（契约 §3.6 入口，v0.17）
+func get_achievement_info() -> Array:
+	return _achievement_list()
+
+## 领取成就奖励（契约 §3.6 入口，v0.17）：达成且未领
+func claim_achievement(id: StringName) -> void:
+	if not Data.ACHIEVEMENTS.has(id) or achievements_claimed.has(id):
+		return
+	var cfg: Dictionary = Data.ACHIEVEMENTS[id]
+	if _achievement_progress(str(cfg.type)) < int(cfg.target):
+		return
+	for reward in cfg.rewards:
+		_grant_task_reward(reward)
+	achievements_claimed.append(id)
+	Contract.achievement_changed.emit(_achievement_list())
+	Save.save_game()
+
+## ================================================================
+## v0.17：称号（契约 §3.14 / 设计文档 §10.6 X4）
+## ================================================================
+## 称号解锁自动检查（动作处调用；新解锁发 title_changed）
+func _check_titles() -> void:
+	var changed := false
+	for tid in Data.TITLES:
+		var cond: Dictionary = Data.TITLES[tid].condition
+		var progress: int = _achievement_progress(str(cond.type))
+		if progress >= int(cond.target) and not titles_unlocked.has(tid):
+			titles_unlocked.append(tid)
+			changed = true
+	if changed:
+		Contract.title_changed.emit(titles_unlocked, title_equipped)
+
+## 只读：称号信息（契约 §3.6 入口，v0.17）
+func get_title_info() -> Dictionary:
+	return { "unlocked": titles_unlocked, "equipped": title_equipped }
+
+## 佩戴/卸下称号（契约 §3.6 入口，v0.17）：id 传空串卸下；解锁且未佩戴才可佩戴
+func equip_title(id: StringName) -> void:
+	if id != &"" and not titles_unlocked.has(id):
+		return
+	title_equipped = id
+	Contract.title_changed.emit(titles_unlocked, title_equipped)
+	# 称号属性变化：全队机娘属性变化通知
+	for mech_id in _owned_mech_ids():
+		_emit_mech_after_equip(mech_id)
+	Save.save_game()
+
+## 已佩戴称号的属性加成（本轮统一全队生效；scope 字段预留）
+func _equipped_title_bonus() -> Dictionary:
+	var total := { "atk_pct": 0.0, "hp_pct": 0.0, "def_pct": 0.0, "spd": 0.0 }
+	if title_equipped == &"" or not Data.TITLES.has(title_equipped):
+		return total
+	var bonus: Dictionary = Data.TITLES[title_equipped].bonus
+	var stat: String = str(bonus.stat)
+	var value: float = float(bonus.value)
+	if total.has(stat):
+		total[stat] = value
+	return total
+
+## ================================================================
+## v0.17：好感（契约 §3.14 / 设计文档 §10.6 X5）
+## ================================================================
+## 只读：好感信息（契约 §3.6 入口，v0.17）
+func get_affinity_info() -> Dictionary:
+	return { "affinity": affinity, "max": Data.AFFINITY_MAX }
+
+## 送礼（契约 §3.6 入口，v0.17）：消耗金币 → 好感 +N（上限 100）
+func give_gift(mech_id: StringName) -> void:
+	if not Data.MECH_GIRLS.has(mech_id) or not owned_mechs.has(mech_id):
+		return
+	if gold < Data.AFFINITY_GIFT_GOLD_COST:
+		return
+	var value: int = int(affinity.get(mech_id, 0))
+	if value >= Data.AFFINITY_MAX:
+		return
+	gold -= Data.AFFINITY_GIFT_GOLD_COST
+	value = mini(value + Data.AFFINITY_GIFT_VALUE, Data.AFFINITY_MAX)
+	affinity[mech_id] = value
+	Contract.gold_changed.emit(gold)
+	Contract.affinity_changed.emit(mech_id, value)
+	_emit_mech_after_equip(mech_id)
+	Save.save_game()
+
+## 出战胜利：上阵机娘好感 +1（各胜利结算处调用）
+func _gain_battle_affinity() -> void:
+	for mech_id in battle.mech_ids:
+		var mid := StringName(mech_id)
+		var value: int = int(affinity.get(mid, 0))
+		if value >= Data.AFFINITY_MAX:
+			continue
+		value = mini(value + Data.AFFINITY_BATTLE_GAIN, Data.AFFINITY_MAX)
+		affinity[mid] = value
+		Contract.affinity_changed.emit(mid, value)
+
+## 好感满级攻击加成（0~100 满级 +5%）
+func _affinity_bonus_atk(mech_id: StringName) -> float:
+	if int(affinity.get(mech_id, 0)) >= Data.AFFINITY_MAX:
+		return Data.AFFINITY_MAX_BONUS_ATK
+	return 0.0
 
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
@@ -2887,4 +3122,11 @@ func get_save_snapshot() -> Dictionary:
 		"task_weekly": task_weekly,
 		"novice_progress": novice_progress,
 		"novice_claimed": novice_claimed,
+		# v0.17：图鉴 / 成就 / 称号 / 好感
+		"collection_rewards_claimed": collection_rewards_claimed,
+		"achievements_claimed": achievements_claimed,
+		"titles_unlocked": titles_unlocked,
+		"title_equipped": title_equipped,
+		"affinity": affinity,
+		"total_summon_count": _total_summon_count,
 	}

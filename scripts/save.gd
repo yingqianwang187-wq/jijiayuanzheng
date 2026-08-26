@@ -76,7 +76,41 @@ func save_game() -> void:
 		"task_weekly": { "progress": {}, "claimed": [] },
 		"novice_progress": {},
 		"novice_claimed": [],
+		# v0.17：图鉴 / 成就 / 称号 / 好感（默认空）+ 抽卡累计（成就用）
+		"collection_rewards_claimed": [],
+		"achievements_claimed": [],
+		"titles_unlocked": [],
+		"title_equipped": "",
+		"affinity": {},
+		"total_summon_count": maxi(int(snapshot.get("total_summon_count", 0)), 0),
 	}
+	# v0.17：字符串键数组（collection/achievement/title id）与好感映射
+	var collection_claimed_src: Variant = snapshot.get("collection_rewards_claimed", [])
+	if collection_claimed_src is Array:
+		for t in collection_claimed_src:
+			var tier := int(t)
+			if Data.COLLECTION_REWARDS.has(tier):
+				save_dict["collection_rewards_claimed"].append(tier)
+	var achievements_claimed_src: Variant = snapshot.get("achievements_claimed", [])
+	if achievements_claimed_src is Array:
+		for a in achievements_claimed_src:
+			var aid := StringName(str(a))
+			if Data.ACHIEVEMENTS.has(aid):
+				save_dict["achievements_claimed"].append(str(aid))
+	var titles_unlocked_src: Variant = snapshot.get("titles_unlocked", [])
+	if titles_unlocked_src is Array:
+		for t2 in titles_unlocked_src:
+			var tid := StringName(str(t2))
+			if Data.TITLES.has(tid):
+				save_dict["titles_unlocked"].append(str(tid))
+	if snapshot.get("title_equipped", "") != "":
+		var equipped_id := StringName(str(snapshot.get("title_equipped", "")))
+		if Data.TITLES.has(equipped_id):
+			save_dict["title_equipped"] = str(equipped_id)
+	var affinity_src: Dictionary = snapshot.get("affinity", {})
+	for mech_id in affinity_src:
+		if Data.MECH_GIRLS.has(StringName(str(mech_id))):
+			save_dict["affinity"][str(mech_id)] = clampi(int(affinity_src[mech_id]), 0, Data.AFFINITY_MAX)
 	# 设置（白名单键 + 默认值补齐）
 	var settings_src: Dictionary = snapshot.get("settings", {})
 	for key in Data.SETTINGS_KEYS:
@@ -440,6 +474,35 @@ func load_game() -> Dictionary:
 			var d := int(day)
 			if d >= 1 and d <= 7:
 				result["novice_claimed"].append(d)
+	# —— v0.17：图鉴 / 成就 / 称号 / 好感 ——
+	var collection_claimed_src: Variant = parsed_dict.get("collection_rewards_claimed", [])
+	if collection_claimed_src is Array:
+		for t in collection_claimed_src:
+			var tier := int(t)
+			if Data.COLLECTION_REWARDS.has(tier):
+				result["collection_rewards_claimed"].append(tier)
+	var achievements_claimed_src: Variant = parsed_dict.get("achievements_claimed", [])
+	if achievements_claimed_src is Array:
+		for a in achievements_claimed_src:
+			var aid := StringName(str(a))
+			if Data.ACHIEVEMENTS.has(aid):
+				result["achievements_claimed"].append(StringName(aid))
+	var titles_unlocked_src: Variant = parsed_dict.get("titles_unlocked", [])
+	if titles_unlocked_src is Array:
+		for t2 in titles_unlocked_src:
+			var tid := StringName(str(t2))
+			if Data.TITLES.has(tid):
+				result["titles_unlocked"].append(StringName(tid))
+	var title_equipped: Variant = parsed_dict.get("title_equipped", "")
+	if StringName(str(title_equipped)) != &"" and Data.TITLES.has(StringName(str(title_equipped))):
+		result["title_equipped"] = StringName(str(title_equipped))
+	var affinity_src: Variant = parsed_dict.get("affinity", {})
+	if affinity_src is Dictionary:
+		for mech_id in affinity_src:
+			if Data.MECH_GIRLS.has(StringName(str(mech_id))):
+				result["affinity"][StringName(str(mech_id))] = clampi(int(affinity_src[mech_id]), 0, Data.AFFINITY_MAX)
+	if parsed_dict.has("total_summon_count"):
+		result["total_summon_count"] = maxi(int(parsed_dict["total_summon_count"]), 0)
 	return result
 
 ## 反序列化任务存储（progress 只认任务表 key；claimed 只认该任务表档位）
@@ -530,4 +593,11 @@ func _default_data() -> Dictionary:
 		"task_weekly": { "progress": {}, "claimed": [] },
 		"novice_progress": {},
 		"novice_claimed": [],
+		# v0.17：图鉴 / 成就 / 称号 / 好感（默认空）+ 抽卡累计
+		"collection_rewards_claimed": [],
+		"achievements_claimed": [],
+		"titles_unlocked": [],
+		"title_equipped": "",
+		"affinity": {},
+		"total_summon_count": 0,
 	}

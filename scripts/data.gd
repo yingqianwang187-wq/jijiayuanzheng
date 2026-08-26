@@ -470,6 +470,56 @@ const NOVICE_TASKS := {
 }
 
 # ------------------------------------------------------------------
+# 图鉴收集奖励（设计文档 §10.4，v0.17：集齐 10/20/30 位领档位奖励）
+# ------------------------------------------------------------------
+const COLLECTION_REWARDS := {
+	10: [ { "type": "diamond", "amount": 100 }, { "type": "ticket", "amount": 1 } ],
+	20: [ { "type": "diamond", "amount": 200 }, { "type": "ticket", "amount": 2 } ],
+	30: [ { "type": "diamond", "amount": 500 }, { "type": "ticket", "amount": 5 } ],
+}
+
+# ------------------------------------------------------------------
+# 成就（设计文档 §10.13，v0.17：12 个目标型一次性奖励；自动检查、手动领奖）
+#   type: story_cleared（累计通关主线）/ summon_count（累计抽卡）/ power（上阵战力）/
+#         tower（爬塔最高层）/ collection（已收集数）
+# ------------------------------------------------------------------
+const ACHIEVEMENTS := {
+	&"first_story": { "name": "初出茅庐", "desc": "通关第 5 关", "type": "story_cleared", "target": 5, "rewards": [ { "type": "diamond", "amount": 50 } ] },
+	&"block_guardian": { "name": "街区守护者", "desc": "通关第 10 关", "type": "story_cleared", "target": 10, "rewards": [ { "type": "diamond", "amount": 100 } ] },
+	&"summon_10": { "name": "小试牛刀", "desc": "累计抽卡 10 次", "type": "summon_count", "target": 10, "rewards": [ { "type": "ticket", "amount": 1 } ] },
+	&"summon_50": { "name": "抽卡达人", "desc": "累计抽卡 50 次", "type": "summon_count", "target": 50, "rewards": [ { "type": "ticket", "amount": 3 } ] },
+	&"power_5k": { "name": "战力新星", "desc": "上阵战力达 5,000", "type": "power", "target": 5000, "rewards": [ { "type": "diamond", "amount": 100 } ] },
+	&"power_20k": { "name": "战力精英", "desc": "上阵战力达 20,000", "type": "power", "target": 20000, "rewards": [ { "type": "diamond", "amount": 200 } ] },
+	&"power_50k": { "name": "战力霸主", "desc": "上阵战力达 50,000", "type": "power", "target": 50000, "rewards": [ { "type": "ticket", "amount": 5 } ] },
+	&"tower_10": { "name": "爬塔新秀", "desc": "爬塔 10 层", "type": "tower", "target": 10, "rewards": [ { "type": "gem", "quality": "white", "amount": 1 } ] },
+	&"tower_30": { "name": "爬塔高手", "desc": "爬塔 30 层", "type": "tower", "target": 30, "rewards": [ { "type": "diamond", "amount": 150 } ] },
+	&"tower_60": { "name": "爬塔传说", "desc": "爬塔 60 层", "type": "tower", "target": 60, "rewards": [ { "type": "ticket", "amount": 3 } ] },
+	&"collect_10": { "name": "收藏家", "desc": "集齐 10 位机娘", "type": "collection", "target": 10, "rewards": [ { "type": "ticket", "amount": 2 } ] },
+	&"collect_30": { "name": "全图鉴", "desc": "集齐 30 位机娘", "type": "collection", "target": 30, "rewards": [ { "type": "ticket", "amount": 5 }, { "type": "gem", "quality": "white", "amount": 1 } ] },
+}
+
+# ------------------------------------------------------------------
+# 称号（设计文档 §10.6 X4，v0.17；列表与属性为推荐值【待确认】）
+#   condition.type: story_cleared / tower / dungeon（通关某档秘境）/ collection
+#   bonus.scope: "team"（全队）/ "self"（佩戴者；本轮统一全队生效）
+# ------------------------------------------------------------------
+const TITLES := {
+	&"first_story_title": { "name": "街区先锋", "desc": "通关第 1 章（5 关）", "condition": { "type": "story_cleared", "target": 5 }, "bonus": { "stat": "atk_pct", "value": 0.02, "scope": "team" } },
+	&"tower_title": { "name": "爬塔新星", "desc": "爬塔 10 层", "condition": { "type": "tower", "target": 10 }, "bonus": { "stat": "atk_pct", "value": 0.03, "scope": "self" } },
+	&"dungeon_title": { "name": "秘境达人", "desc": "通关任意地狱档秘境", "condition": { "type": "dungeon", "target": 4 }, "bonus": { "stat": "def_pct", "value": 0.03, "scope": "self" } },
+	&"collect_title": { "name": "收藏家", "desc": "集齐 10 位机娘", "condition": { "type": "collection", "target": 10 }, "bonus": { "stat": "hp_pct", "value": 0.05, "scope": "self" } },
+}
+
+# ------------------------------------------------------------------
+# 好感度（设计文档 §10.6 X5，v0.17；数值为推荐值【待确认】）
+# ------------------------------------------------------------------
+const AFFINITY_MAX := 100                     # 好感上限 100
+const AFFINITY_GIFT_GOLD_COST := 200          # 送礼消耗金币
+const AFFINITY_GIFT_VALUE := 5                # 单次送礼 +5
+const AFFINITY_BATTLE_GAIN := 1               # 出战胜利 +1
+const AFFINITY_MAX_BONUS_ATK := 0.05          # 满级：该机娘攻击 +5%
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300
