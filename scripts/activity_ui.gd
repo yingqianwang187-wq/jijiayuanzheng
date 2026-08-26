@@ -65,8 +65,8 @@ func _build_list() -> void:
 		var cfg: Dictionary = Data.ACTIVITIES.get(aid, {})
 		var done: bool = bool(item.get("done", false))
 		var claimed: bool = bool(item.get("claimed", false))
-		var panel := Panel.new()
-		panel.custom_minimum_size = Vector2(0, 0)
+		# v0.19 修复：Panel → PanelContainer（自动适配子内容尺寸，避免文字重叠）
+		var panel := PanelContainer.new()
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 4)
 		var head := HBoxContainer.new()
