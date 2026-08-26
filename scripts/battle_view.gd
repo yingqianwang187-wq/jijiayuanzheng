@@ -20,12 +20,14 @@
 #          集合才能展示状态图标（显示层聚合，不修改任何数值）。
 # 伤害统计：战斗结束时（battle_star / level_cleared / battle_failed）只读 Game.battle.mechs
 #          的 dmg_dealt / heal_done 汇总展示（Game 累计，UI 只显示）。
-# 模式适配（v0.13/v0.16/v0.20）：按 Game.battle.mode 四分支——&"story"（主线标题"第 N 关 · 战斗"、
-#          重试 start_battle）；&"dungeon"（标题"副本名·档位"、重试 start_dungeon、通关反馈
-#          dungeon_reward、体力不足隐藏重试）；&"tower"（标题"第 N 层 · 爬塔"、层数读
-#          dungeon_ctx.layer（B 实际字段）、重试 start_tower、通关反馈 tower_changed、
-#          当日满上限隐藏重试）；&"boss"（标题"每日BOSS · 当日名"、每日 1 次不重试、
-#          结算反馈 daily_boss_changed 显示伤害）。
+# 模式适配（v0.13/v0.16/v0.20/v0.21）：按 Game.battle.mode 五分支——&"story"（主线标题
+#          "第 N 关 · 战斗"、重试 start_battle）；&"dungeon"（标题"副本名·档位"、重试
+#          start_dungeon、通关反馈 dungeon_reward、体力不足隐藏重试）；&"tower"（标题
+#          "第 N 层 · 爬塔"、层数读 dungeon_ctx.layer（B 实际字段）、重试 start_tower、
+#          通关反馈 tower_changed、当日满上限隐藏重试）；&"boss"（标题"每日BOSS · 当日名"、
+#          每日 1 次不重试、结算反馈 daily_boss_changed 显示伤害）；&"survival"（标题
+#          "第 N 波 · 生存"、每日 1 次不重试（重试分支仍保留 start_survival 防御）、
+#          结算反馈 survival_changed 显示最佳波数）。
 # ==================================================================
 extends Control
 
@@ -76,6 +78,7 @@ func _ready() -> void:
 	Contract.dungeon_reward.connect(_on_dungeon_reward)
 	Contract.tower_changed.connect(_on_tower_changed)
 	Contract.daily_boss_changed.connect(_on_daily_boss_changed)
+	Contract.survival_changed.connect(_on_survival_changed)
 	_accelerate_button.toggled.connect(_on_accelerate_toggled)
 	_retry_button.pressed.connect(_on_retry_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
@@ -225,6 +228,13 @@ func _on_battle_failed(level: int) -> void:
 		_retry_button.visible = false
 		_show_battle_stats()
 		return
+	# v0.21：生存模式结束（我方全灭/超时按波数结算）——每日 1 次不重试
+	elif _battle_mode == &"survival":
+		var sur_info: Dictionary = Game.get_survival_info()
+		_status_label.text = "生存结束：最佳 %d 波（每日仅 1 次）" % int(sur_info.get("best_waves", 0))
+		_retry_button.visible = false
+		_show_battle_stats()
+		return
 	_status_label.text = "战斗失败！点击重试"
 	_retry_button.visible = true
 	_show_battle_stats()
@@ -238,6 +248,11 @@ func _on_tower_changed(level: int, _daily_count: int) -> void:
 func _on_daily_boss_changed(damage: int, _day: String) -> void:
 	# v0.20：每日BOSS 结算反馈（战斗结束按伤害结算后由 Game 发出）
 	_status_label.text = "每日BOSS：造成伤害 %d！" % damage
+
+
+func _on_survival_changed(_day: String, best_waves: int) -> void:
+	# v0.21：生存模式结算反馈（按波数结算后由 Game 发出）
+	_status_label.text = "生存：最佳 %d 波！" % best_waves
 
 
 func _on_dungeon_reward(kind: StringName, tier: int, rewards: Dictionary) -> void:
@@ -262,11 +277,14 @@ func _on_accelerate_toggled(on: bool) -> void:
 
 func _on_retry_pressed() -> void:
 	_reset_battle_ui()
-	# v0.13/v0.16：按模式重试——秘境 start_dungeon / 爬塔 start_tower / 主线 start_battle
+	# v0.13/v0.16/v0.21：按模式重试——秘境 start_dungeon / 爬塔 start_tower /
+	# 生存 start_survival（每日 1 次，当日已打 start 校验静默返回）/ 主线 start_battle
 	if _battle_mode == &"dungeon":
 		Game.start_dungeon(_dungeon_kind, _dungeon_tier)
 	elif _battle_mode == &"tower":
 		Game.start_tower()
+	elif _battle_mode == &"survival":
+		Game.start_survival()
 	else:
 		Game.start_battle(_retry_level)
 
