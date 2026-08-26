@@ -1,0 +1,136 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/settings_ui.gd" id="1_script"]
+
+[node name="Settings" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.09, 0.11, 0.15, 1)
+
+[node name="root_box" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 24.0
+offset_top = 16.0
+offset_right = -24.0
+offset_bottom = -16.0
+theme_override_constants/separation = 8
+
+[node name="title_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = "设置"
+horizontal_alignment = 1
+
+[node name="music_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="music_label" type="Label" parent="root_box/music_row"]
+layout_mode = 2
+text = "音乐"
+custom_minimum_size = Vector2(80, 0)
+
+[node name="music_on" type="CheckButton" parent="root_box/music_row"]
+layout_mode = 2
+text = "开"
+
+[node name="music_volume" type="HSlider" parent="root_box/music_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 0.8
+
+[node name="sfx_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="sfx_label" type="Label" parent="root_box/sfx_row"]
+layout_mode = 2
+text = "音效"
+custom_minimum_size = Vector2(80, 0)
+
+[node name="sfx_on" type="CheckButton" parent="root_box/sfx_row"]
+layout_mode = 2
+text = "开"
+
+[node name="sfx_volume" type="HSlider" parent="root_box/sfx_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 0.8
+
+[node name="default_2x_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="default_2x_label" type="Label" parent="root_box/default_2x_row"]
+layout_mode = 2
+text = "战斗 2x 默认"
+custom_minimum_size = Vector2(80, 0)
+
+[node name="default_2x" type="CheckButton" parent="root_box/default_2x_row"]
+layout_mode = 2
+text = "关"
+
+[node name="language_row" type="HBoxContainer" parent="root_box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="language_label" type="Label" parent="root_box/language_row"]
+layout_mode = 2
+text = "语言"
+custom_minimum_size = Vector2(80, 0)
+
+[node name="language" type="OptionButton" parent="root_box/language_row"]
+layout_mode = 2
+item_count = 1
+
+[node name="export_title" type="Label" parent="root_box"]
+layout_mode = 2
+text = "—— 存档导出 ——"
+horizontal_alignment = 1
+
+[node name="export_text" type="TextEdit" parent="root_box"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 180)
+editable = false
+wrap_mode = 0
+
+[node name="message_label" type="Label" parent="root_box"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="reset_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "重置存档"
+
+[node name="back_button" type="Button" parent="root_box"]
+layout_mode = 2
+text = "返回主界面"
+
+[node name="confirm_dialog" type="ConfirmationDialog" parent="."]
+title = "确认重置"
+ok_button_text = "确认重置"
+cancel_button_text = "取消"

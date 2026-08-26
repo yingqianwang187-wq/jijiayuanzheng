@@ -67,6 +67,11 @@ var equipped: Dictionary = {}                     # 穿戴 {mech_id: {slot: uid}
 var gem_stock: Dictionary = {}                    # 宝石库存 {quality_name: count}
 var _equip_uid_seed: int = 1                      # 装备 uid 自增种子（load 后扫描库存续号）
 
+## v0.15：设置 / 商城
+var settings: Dictionary = {}                     # 设置 {music_on, sfx_on, music_volume, sfx_volume, default_2x, language}
+var shop_day: String = ""                         # 上次商城刷新日（本地日期；跨日清已购）
+var shop_bought: Dictionary = {}                  # 当日已购 {item_id: true}（每商品每日限购 1 次）
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -268,6 +273,28 @@ func _load_initial_state() -> void:
 			if StringName(str(q)) in Data.GEM_QUALITIES:
 				gem_stock[StringName(str(q))] = maxi(int(gem_data[q]), 0)
 	_init_equip_uid_seed()
+	# —— v0.15：设置 / 商城 ——
+	settings = {}
+	var settings_data: Variant = data.get("settings", {})
+	if settings_data is Dictionary:
+		for key in Data.SETTINGS_KEYS:
+			var key_str: String = str(key)
+			if settings_data.has(key_str):
+				settings[key_str] = settings_data[key_str]
+			else:
+				settings[key_str] = Data.SETTINGS_DEFAULTS[key]
+	else:
+		for key in Data.SETTINGS_KEYS:
+			settings[str(key)] = Data.SETTINGS_DEFAULTS[key]
+	shop_day = str(data.get("shop_day", Time.get_date_string_from_system()))
+	shop_bought.clear()
+	var shop_bought_data: Variant = data.get("shop_bought", {})
+	if shop_bought_data is Dictionary:
+		for item_id in shop_bought_data:
+			if Data.SHOP_ITEMS.has(StringName(str(item_id))):
+				shop_bought[str(item_id)] = true
+	# 商城跨日刷新（清已购）
+	_check_shop_refresh()
 	# 每日重置（跨日清体力购买次数）+ 离线体力恢复结算
 	_check_daily_reset()
 	_recover_stamina()
@@ -309,6 +336,9 @@ func _emit_initial_state() -> void:
 	Contract.equip_inventory_changed.emit(equip_inventory)
 	Contract.equipped_changed.emit(equipped)
 	Contract.gem_stock_changed.emit(gem_stock)
+	# v0.15：设置 / 商城
+	Contract.settings_changed.emit(settings)
+	Contract.shop_changed.emit(_shop_items_list(), shop_bought)
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -2315,6 +2345,125 @@ func _random_mech_of_rarity(rarity: int) -> StringName:
 			candidates.append(mech_id)
 	return StringName(candidates[randi() % candidates.size()])
 
+## ================================================================
+## v0.15：设置（契约 §3.12 / 设计文档 §10.9 X24）
+## ================================================================
+## 只读：当前设置
+func get_settings() -> Dictionary:
+	return settings
+
+## 修改设置（key 白名单 + 值域校验；生效后发 settings_changed + 存档）
+func set_setting(key: StringName, value) -> void:
+	var key_str: String = str(key)
+	if not Data.SETTINGS_KEYS.has(key):
+		return
+	match key_str:
+		"music_on", "sfx_on", "default_2x":
+			if not (value is bool):
+				return
+		"music_volume", "sfx_volume":
+			if not (value is float or value is int):
+				return
+			var v: float = float(value)
+			if v < 0.0 or v > 1.0:
+				return
+		"language":
+			if not (value is String) or not Data.SETTINGS_LANGUAGES.has(str(value)):
+				return
+	settings[key_str] = value
+	Contract.settings_changed.emit(settings)
+	Save.save_game()
+
+## ================================================================
+## v0.15：商城（契约 §3.12 / 设计文档 §5）
+## ================================================================
+## 跨日刷新：商城每日 0 点刷新（本地日期变化清当日已购）
+func _check_shop_refresh() -> void:
+	var today: String = Time.get_date_string_from_system()
+	if shop_day != today:
+		shop_day = today
+		shop_bought.clear()
+
+## 当日商品列表（含价格/内容）
+func _shop_items_list() -> Array:
+	var items: Array = []
+	for item_id in Data.SHOP_ITEMS:
+		var cfg: Dictionary = Data.SHOP_ITEMS[item_id]
+		items.append({
+			"id": item_id,
+			"name": str(cfg.name),
+			"cost_type": str(cfg.cost_type),
+			"cost": int(cfg.cost),
+			"reward": cfg.reward,
+		})
+	return items
+
+## 只读：商城状态（当日商品 + 已购）
+func get_shop_items() -> Dictionary:
+	_check_shop_refresh()
+	return { "items": _shop_items_list(), "bought": shop_bought }
+
+## 购买商品（契约 §3.6 入口，v0.15）：校验存在/限购/货币 → 扣 → 发放 → shop_changed → 存档
+func buy_shop_item(item_id: StringName) -> void:
+	if not Data.SHOP_ITEMS.has(item_id):
+		return
+	_check_shop_refresh()
+	if shop_bought.has(str(item_id)):
+		return  # 每商品每日限购 1 次
+	var cfg: Dictionary = Data.SHOP_ITEMS[item_id]
+	var cost: int = int(cfg.cost)
+	if str(cfg.cost_type) == "diamond":
+		if diamond < cost:
+			return
+		diamond -= cost
+		Contract.diamond_changed.emit(diamond)
+	else:
+		if gold < cost:
+			return
+		gold -= cost
+		Contract.gold_changed.emit(gold)
+	# 发放内容
+	_grant_shop_reward(cfg.reward)
+	shop_bought[str(item_id)] = true
+	Contract.shop_changed.emit(_shop_items_list(), shop_bought)
+	Save.save_game()
+
+## 发放商品内容（金币/体力/装备/宝石/碎片；入账走既有信号）
+func _grant_shop_reward(reward: Dictionary) -> void:
+	var amount: int = int(reward.amount)
+	match str(reward.kind):
+		"gold":
+			gold += amount
+			Contract.gold_changed.emit(gold)
+		"stamina":
+			var before: int = stamina
+			stamina = mini(stamina + amount, Data.STAMINA_MAX)
+			if stamina != before:
+				Contract.stamina_changed.emit(stamina)
+		"equip":
+			for i in amount:
+				equip_inventory.append(_spawn_equip(_random_slot(), 1 + randi() % 2))
+			Contract.equip_inventory_changed.emit(equip_inventory)
+		"gem":
+			var q_idx: int = randi() % 2  # 白/绿
+			var q := StringName(str(Data.GEM_QUALITIES[q_idx]))
+			gem_stock[q] = int(gem_stock.get(q, 0)) + amount
+			Contract.gem_stock_changed.emit(gem_stock)
+		"fragment":
+			var target_id := _random_mech_of_rarity(Data.Rarity.R)
+			fragments[target_id] = int(fragments.get(target_id, 0)) + amount
+			Contract.fragments_updated.emit(target_id, int(fragments[target_id]))
+
+## ================================================================
+## v0.15：重置存档（契约 §3.6 入口；UI 调用前必须二次确认）
+## 清档 → 重置为新档默认 → 写默认档 → 重发全套初始信号
+## ================================================================
+func reset_save() -> void:
+	Save.clear_save()
+	_load_initial_state()
+	Save.save_game()
+	_emit_initial_state()
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -2370,4 +2519,8 @@ func get_save_snapshot() -> Dictionary:
 		"equip_inventory": equip_inventory,
 		"equipped": equipped,
 		"gem_stock": gem_stock,
+		# v0.15：设置 / 商城
+		"settings": settings,
+		"shop_day": shop_day,
+		"shop_bought": shop_bought,
 	}

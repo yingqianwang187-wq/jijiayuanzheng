@@ -129,6 +129,16 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "装备"
 
+[node name="shop_button" type="Button" parent="root_box/feature_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "商城"
+
+[node name="settings_button" type="Button" parent="root_box/feature_row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "设置"
+
 [node name="bottom_row" type="HBoxContainer" parent="root_box"]
 layout_mode = 2
 theme_override_constants/separation = 10

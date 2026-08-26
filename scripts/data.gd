@@ -336,6 +336,59 @@ const DUNGEON_EQUIP_STAR_TIERS := [1, 1, 2, 2, 3]
 const DUNGEON_GEM_QUALITY_TIERS := [0, 1, 2, 3, 3]
 
 # ------------------------------------------------------------------
+# 商城（契约 §3.12 / 设计文档 §5，v0.15；内容/价格为推荐值【待确认】）
+#   每日 0 点刷新、每商品每日限购 1 次；cost_type: "diamond" / "gold"
+#   reward.kind: gold / stamina / equip / gem / fragment
+# ------------------------------------------------------------------
+const SHOP_ITEMS := {
+	&"gold_bag": {
+		"name": "金币袋",
+		"cost_type": "diamond",
+		"cost": 50,
+		"reward": { "kind": "gold", "amount": 1000 },
+	},
+	&"stamina_potion": {
+		"name": "体力药水",
+		"cost_type": "gold",
+		"cost": 500,
+		"reward": { "kind": "stamina", "amount": 50 },
+	},
+	&"random_equip": {
+		"name": "随机装备",
+		"cost_type": "diamond",
+		"cost": 100,
+		"reward": { "kind": "equip", "amount": 1 },
+	},
+	&"random_gem": {
+		"name": "随机宝石",
+		"cost_type": "gold",
+		"cost": 800,
+		"reward": { "kind": "gem", "amount": 1 },
+	},
+	&"fragment_pack": {
+		"name": "碎片包",
+		"cost_type": "diamond",
+		"cost": 150,
+		"reward": { "kind": "fragment", "amount": 20 },
+	},
+}
+
+# ------------------------------------------------------------------
+# 设置（契约 §3.12 / 设计文档 §10.9 X24，v0.15）
+#   SETTINGS_KEYS：key 白名单；值域由 Game.set_setting 校验
+# ------------------------------------------------------------------
+const SETTINGS_DEFAULTS := {
+	&"music_on": true,        # 音乐开关
+	&"sfx_on": true,          # 音效开关
+	&"music_volume": 0.8,     # 音乐音量 0..1
+	&"sfx_volume": 0.8,       # 音效音量 0..1
+	&"default_2x": false,     # 战斗 2x 默认开关
+	&"language": "zh",        # 语言（当前中文）
+}
+const SETTINGS_KEYS := [&"music_on", &"sfx_on", &"music_volume", &"sfx_volume", &"default_2x", &"language"]
+const SETTINGS_LANGUAGES := ["zh"]
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300

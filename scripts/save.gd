@@ -63,7 +63,23 @@ func save_game() -> void:
 		"equip_inventory": [],
 		"equipped": {},
 		"gem_stock": {},
+		# v0.15：设置 / 商城
+		"settings": {},
+		"shop_day": str(snapshot.get("shop_day", "")),
+		"shop_bought": {},
 	}
+	# 设置（白名单键 + 默认值补齐）
+	var settings_src: Dictionary = snapshot.get("settings", {})
+	for key in Data.SETTINGS_KEYS:
+		if settings_src.has(str(key)):
+			save_dict["settings"][str(key)] = settings_src[str(key)]
+		else:
+			save_dict["settings"][str(key)] = Data.SETTINGS_DEFAULTS[key]
+	# 当日已购商品（只认 SHOP_ITEMS）
+	var shop_bought_src: Dictionary = snapshot.get("shop_bought", {})
+	for item_id in shop_bought_src:
+		if Data.SHOP_ITEMS.has(StringName(str(item_id))):
+			save_dict["shop_bought"][str(item_id)] = true
 	# 背包物品（item_id → count，只认 Data.ITEMS）
 	var bag_src: Dictionary = snapshot.get("bag", {})
 	var bag_items_src: Dictionary = bag_src.get("items", {})
@@ -354,7 +370,26 @@ func load_game() -> Dictionary:
 		for q in gem_stock_src:
 			if StringName(str(q)) in Data.GEM_QUALITIES:
 				result["gem_stock"][StringName(str(q))] = maxi(int(gem_stock_src[q]), 0)
+	# —— v0.15：设置 / 商城 ——
+	var settings_src: Variant = parsed_dict.get("settings", {})
+	if settings_src is Dictionary:
+		for key in Data.SETTINGS_KEYS:
+			var key_str: String = str(key)
+			if settings_src.has(key_str):
+				result["settings"][key_str] = settings_src[key_str]
+	var shop_day: Variant = parsed_dict.get("shop_day", "")
+	result["shop_day"] = str(shop_day)
+	var shop_bought_src: Variant = parsed_dict.get("shop_bought", {})
+	if shop_bought_src is Dictionary:
+		for item_id in shop_bought_src:
+			if Data.SHOP_ITEMS.has(StringName(str(item_id))):
+				result["shop_bought"][str(item_id)] = true
 	return result
+
+## 清空存档文件（供 Game.reset_save 使用：删除 user://save.json，下次读档回默认值）
+func clear_save() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(SAVE_PATH)
 
 ## 默认档数据（契约 §3.2，v0.10）：开局资源 = 金币 1000 + 钻石 300（仅新档，v0.18）、
 ## 机娘取 Data 初始配置（Lv1、个人经验 0、1 星）、拥有开局 2 位机娘、解锁关卡 1、
@@ -401,4 +436,8 @@ func _default_data() -> Dictionary:
 		"equip_inventory": [],
 		"equipped": {},
 		"gem_stock": {},
+		# v0.15：设置默认 / 商城（默认今日、未购）
+		"settings": Data.SETTINGS_DEFAULTS.duplicate(),
+		"shop_day": Time.get_date_string_from_system(),
+		"shop_bought": {},
 	}

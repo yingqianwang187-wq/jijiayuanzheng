@@ -60,6 +60,8 @@ extends Control
 @onready var _bag_button: Button = $root_box/feature_row/bag_button
 @onready var _box_button: Button = $root_box/feature_row/box_button
 @onready var _equipment_button: Button = $root_box/feature_row/equipment_button
+@onready var _shop_button: Button = $root_box/feature_row/shop_button
+@onready var _settings_button: Button = $root_box/feature_row/settings_button
 @onready var _save_button: Button = $root_box/bottom_row/save_button
 @onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
 @onready var _formation_button: Button = $root_box/bottom_row/formation_button
@@ -94,6 +96,8 @@ func _ready() -> void:
 	_bag_button.pressed.connect(_on_bag_pressed)
 	_box_button.pressed.connect(_on_box_pressed)
 	_equipment_button.pressed.connect(_on_equipment_pressed)
+	_shop_button.pressed.connect(_on_shop_pressed)
+	_settings_button.pressed.connect(_on_settings_pressed)
 	_rebuild_mech_rows()
 	_seed_initial_state()
 
@@ -255,6 +259,16 @@ func _on_box_pressed() -> void:
 func _on_equipment_pressed() -> void:
 	# v0.14：进入装备界面
 	get_tree().change_scene_to_file("res://scenes/Equipment.tscn")
+
+
+func _on_shop_pressed() -> void:
+	# v0.15：进入商城界面
+	get_tree().change_scene_to_file("res://scenes/Shop.tscn")
+
+
+func _on_settings_pressed() -> void:
+	# v0.15：进入设置界面
+	get_tree().change_scene_to_file("res://scenes/Settings.tscn")
 
 
 ## ------------------------------------------------------------------
