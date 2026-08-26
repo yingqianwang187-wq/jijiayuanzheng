@@ -14,6 +14,10 @@
 # 变更规则：改本文件 = 改契约。先向总指挥 A 提变更申请，获准后由契约官
 #          同步更新 docs/契约.md 与本文件，并升级版本号（契约 §④）。
 # 变更记录：
+#   v0.21（阶段 5 第二批：远征+生存模式+家园互动，设计文档 v0.23 §10.7）：
+#       新增信号 expedition_changed / survival_changed / home_changed；
+#       术语新增 expedition / survival / home；
+#       生存模式 battle.mode 增 "survival"（无限波次）。
 #   v0.20（阶段 5 第一批：限定池+皮肤+每日BOSS+本地排行榜，设计文档 v0.23）：
 #       新增信号 skin_changed / daily_boss_changed；
 #       术语新增 limited / skin / daily_boss / rank；
@@ -77,7 +81,7 @@
 extends Node
 
 ## 契约版本号 —— 必须与 docs/契约.md 顶部版本号一致
-const CONTRACT_VERSION := "v0.20"
+const CONTRACT_VERSION := "v0.21"
 
 # ------------------------------------------------------------------
 # ② 自动加载单例（autoload）名 —— 必须与 project.godot 注册名一致
@@ -170,6 +174,11 @@ const TERM_SKIN       := "skin"         # 皮肤（纯外观换装，占位，�
 const TERM_DAILY_BOSS := "daily_boss"   # 每日BOSS（每日 1 次、伤害结算、本地伤害榜）
 const TERM_RANK       := "rank"         # 本地排行榜（战力/爬塔/BOSS/进度）
 
+# ---- 阶段 5 远征/生存/家园术语（设计文档 §10.7，v0.21）----
+const TERM_EXPEDITION := "expedition"    # 远征/派遣（1~8 小时任务，离线计时）
+const TERM_SURVIVAL   := "survival"      # 生存模式（无限波次、每日 1 次）
+const TERM_HOME       := "home"          # 家园互动（机娘休息互动、好感关联）
+
 # ------------------------------------------------------------------
 # 稀有度（设计文档 §2.1：R / SR / SSR）—— 供 Data 数值表使用
 # ------------------------------------------------------------------
@@ -242,3 +251,8 @@ signal guide_changed(step: int)                                               # 
 # ---- 阶段 5 信号（v0.20：皮肤 / 每日BOSS）----
 signal skin_changed(unlocked: Array, equipped: Dictionary)                    # 皮肤变化（解锁/穿戴后）
 signal daily_boss_changed(damage: int, day: String)                           # 每日BOSS 变化（挑战后最高伤害/当日）
+
+# ---- 阶段 5 远征/生存/家园信号（v0.21）----
+signal expedition_changed(expedition: Dictionary)                             # 远征变化（派遣/到期领取后）
+signal survival_changed(day: String, best_waves: int)                         # 生存模式变化（挑战后最佳波数/当日）
+signal home_changed(id: StringName, count: int)                               # 家园互动变化（互动次数）
