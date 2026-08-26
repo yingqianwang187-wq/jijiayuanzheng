@@ -3,9 +3,10 @@
 # 作者   ：C（画面 + 界面）
 # 依据   ：docs/契约.md §3.4 / §3.5 / §3.6 / §3.9 / §3.10（v0.13）、scripts/contract.gd（只读）
 # 职责   ：战斗画面的纯显示层（契约 §3.4 / §3.9）：
-#          - 连接信号（12 个）：battle_tick / mech_girl_updated / enemy_updated /
+#          - 连接信号（13 个）：battle_tick / mech_girl_updated / enemy_updated /
 #            skill_cast / energy_changed / status_changed / wave_changed /
-#            battle_prompt / battle_star / level_cleared / battle_failed / dungeon_reward
+#            battle_prompt / battle_star / level_cleared / battle_failed /
+#            dungeon_reward / tower_changed
 #          - 显示：双方 3x3 九宫格站位（血条/能量条/状态）、技能名、波次、分色提示、
 #            星级、简版伤害统计；按钮只调入口（2x → Game.toggle_accelerate；
 #            开始/重试 → 主线 Game.start_battle / 秘境 Game.start_dungeon（v0.13 按 battle.mode）；
@@ -19,10 +20,11 @@
 #          集合才能展示状态图标（显示层聚合，不修改任何数值）。
 # 伤害统计：战斗结束时（battle_star / level_cleared / battle_failed）只读 Game.battle.mechs
 #          的 dmg_dealt / heal_done 汇总展示（Game 累计，UI 只显示）。
-# 秘境适配（v0.13）：按 Game.battle.mode（&"story" / &"dungeon"）——标题显示副本名·档位
-#          （Data.DUNGEONS[kind].name + 本地档位名）；失败重试调 Game.start_dungeon(kind, tier)
-#          （kind/tier 取 Game.battle.dungeon_ctx）；connect dungeon_reward 显示通关反馈
-#          （钻石 = Data.DUNGEONS 首通钻石，资源 = rewards 参数）。
+# 模式适配（v0.13/v0.16）：按 Game.battle.mode 三分支——&"story"（主线标题"第 N 关 · 战斗"、
+#          重试 start_battle）；&"dungeon"（标题"副本名·档位"、重试 start_dungeon、通关反馈
+#          dungeon_reward、体力不足隐藏重试）；&"tower"（标题"第 N 层 · 爬塔"、层数读
+#          dungeon_ctx.layer（B 实际字段）、重试 start_tower、通关反馈 tower_changed、
+#          当日满上限隐藏重试）。
 # ==================================================================
 extends Control
 
@@ -49,9 +51,10 @@ var _cell_statuses: Dictionary = {}         # id -> {status_id: duration}
 var _unit_names: Dictionary = {}            # id -> 显示名（提示用）
 var _battle_level: int = 1
 var _retry_level: int = 1
-var _battle_mode: StringName = &"story"     # &"story"（主线）/ &"dungeon"（秘境，v0.13）
+var _battle_mode: StringName = &"story"     # &"story"（主线）/ &"dungeon"（秘境）/ &"tower"（爬塔）
 var _dungeon_kind: StringName = &""         # 秘境副本 kind（dungeon_ctx）
 var _dungeon_tier: int = 0                  # 秘境档位（dungeon_ctx）
+var _tower_layer: int = 1                   # 爬塔层数（dungeon_ctx.layer，B 实际字段）
 
 ## 秘境档位名称（tier 0~4，与 Data.DUNGEONS tiers 顺序一致）
 const _TIER_NAMES := ["新手", "简单", "中等", "困难", "地狱"]
@@ -70,6 +73,7 @@ func _ready() -> void:
 	Contract.level_cleared.connect(_on_level_cleared)
 	Contract.battle_failed.connect(_on_battle_failed)
 	Contract.dungeon_reward.connect(_on_dungeon_reward)
+	Contract.tower_changed.connect(_on_tower_changed)
 	_accelerate_button.toggled.connect(_on_accelerate_toggled)
 	_retry_button.pressed.connect(_on_retry_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
@@ -86,13 +90,19 @@ func _seed_initial_state() -> void:
 	if not Game.battle.active:
 		_status_label.text = "未在战斗中，请点击开始战斗"
 		return
-	# v0.13：按模式分支——秘境（mode=dungeon）标题显示"副本名·档位"，主线保持"第 N 关 · 战斗"
+	# v0.13/v0.16：按模式三分支——秘境显示"副本名·档位"、爬塔显示"第 N 层 · 爬塔"、
+	# 主线保持"第 N 关 · 战斗"
 	_battle_mode = Game.battle.get("mode", &"story")
 	if _battle_mode == &"dungeon":
 		var ctx: Dictionary = Game.battle.get("dungeon_ctx", {})
 		_dungeon_kind = StringName(str(ctx.get("kind", "")))
 		_dungeon_tier = int(ctx.get("tier", 0))
 		_title_label.text = "%s·%s" % [_dungeon_name(_dungeon_kind), _tier_name(_dungeon_tier)]
+	elif _battle_mode == &"tower":
+		# B 实际实现：爬塔层数字段为 dungeon_ctx.layer
+		var tctx: Dictionary = Game.battle.get("dungeon_ctx", {})
+		_tower_layer = int(tctx.get("layer", 1))
+		_title_label.text = "第 %d 层 · 爬塔" % _tower_layer
 	else:
 		_battle_level = int(Game.battle.level)
 		_title_label.text = "第 %d 关 · 战斗" % _battle_level
@@ -191,9 +201,22 @@ func _on_battle_failed(level: int) -> void:
 			_retry_button.visible = false
 			_show_battle_stats()
 			return
+	# v0.16：爬塔失败——当日已满 30 层（start_tower 校验静默返回）时隐藏重试并提示
+	elif _battle_mode == &"tower":
+		var tower_info: Dictionary = Game.get_tower_info()
+		if int(tower_info.get("daily_count", 0)) >= int(tower_info.get("daily_limit", Data.TOWER_DAILY_LIMIT)):
+			_status_label.text = "今日爬塔已达上限"
+			_retry_button.visible = false
+			_show_battle_stats()
+			return
 	_status_label.text = "战斗失败！点击重试"
 	_retry_button.visible = true
 	_show_battle_stats()
+
+
+func _on_tower_changed(level: int, _daily_count: int) -> void:
+	# v0.16：爬塔通关反馈（tower 战斗胜利后由 Game 发出）
+	_status_label.text = "第 %d 层通关！" % level
 
 
 func _on_dungeon_reward(kind: StringName, tier: int, rewards: Dictionary) -> void:
@@ -218,9 +241,11 @@ func _on_accelerate_toggled(on: bool) -> void:
 
 func _on_retry_pressed() -> void:
 	_reset_battle_ui()
-	# v0.13：秘境失败重试走 start_dungeon（kind/tier 取 dungeon_ctx）；主线走 start_battle
+	# v0.13/v0.16：按模式重试——秘境 start_dungeon / 爬塔 start_tower / 主线 start_battle
 	if _battle_mode == &"dungeon":
 		Game.start_dungeon(_dungeon_kind, _dungeon_tier)
+	elif _battle_mode == &"tower":
+		Game.start_tower()
 	else:
 		Game.start_battle(_retry_level)
 

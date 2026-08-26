@@ -389,6 +389,87 @@ const SETTINGS_KEYS := [&"music_on", &"sfx_on", &"music_volume", &"sfx_volume", 
 const SETTINGS_LANGUAGES := ["zh"]
 
 # ------------------------------------------------------------------
+# 爬塔（设计文档 §10.2，v0.16；数值为推荐值【待确认】）
+#   无尽层、每层一波、层层变强、不耗体力；每日 30 层上限（跨日重置）
+# ------------------------------------------------------------------
+const TOWER_DAILY_LIMIT := 30
+const TOWER_NORMAL_GOLD_BASE := 20          # 普通层金币 = base + 层数 × per
+const TOWER_NORMAL_GOLD_PER_LEVEL := 2
+const TOWER_NORMAL_EXP_BASE := 10           # 普通层经验（进个人条）= base + 层数
+const TOWER_GRAND_DIAMOND_BASE := 50        # 每 10 层大奖：钻石 = base + (层数/10-1) × per
+const TOWER_GRAND_DIAMOND_PER := 30
+const TOWER_GRAND_TICKET_EVERY := 10        # 每 10 层 1 召唤券
+const TOWER_GRAND_GEM_EVERY := 20           # 每 20 层 1 颗白宝石
+const TOWER_ENEMY_BASE_ATK := 20            # 敌人强度曲线：base × growth^(层数-1)
+const TOWER_ENEMY_BASE_HP := 200
+const TOWER_ENEMY_GROWTH := 1.08
+const TOWER_ENEMY_BASE_DEF := 8
+const TOWER_ENEMY_BASE_SPD := 6
+
+# ------------------------------------------------------------------
+# 每日签到（设计文档 §10.3，v0.16；每日金币+钻石，累计 7 天额外奖）
+# ------------------------------------------------------------------
+const SIGN_GOLD := 200
+const SIGN_DIAMOND := 5
+const SIGN_7_DIAMOND := 50
+const SIGN_7_TICKET := 1
+const SIGN_7_GEM := 1
+
+# ------------------------------------------------------------------
+# 任务（设计文档 §10.3，v0.16）
+#   每日 8 任务共 100 活跃度（达标才计活跃度）；档位 20/40/60/80/100
+#   每周 6 任务共 300 活跃度；档位 50/100/150/200/300；每周一重置
+#   奖励 type: gold / diamond / ticket / gem（quality）/ equip
+# ------------------------------------------------------------------
+const DAILY_TASKS := {
+	&"story_levels": { "name": "推主线 3 关", "target": 3, "active": 20 },
+	&"upgrade_mech": { "name": "升级机娘 1 次", "target": 1, "active": 10 },
+	&"collect_idle": { "name": "点击收获 1 次", "target": 1, "active": 10 },
+	&"summon": { "name": "抽卡 1 次", "target": 1, "active": 10 },
+	&"dungeon": { "name": "挑战秘境 1 次", "target": 1, "active": 15 },
+	&"tower": { "name": "爬塔 5 层", "target": 5, "active": 15 },
+	&"sign": { "name": "领取每日签到", "target": 1, "active": 5 },
+	&"dungeon_sweep": { "name": "秘境挑战/扫荡 1 次", "target": 1, "active": 15 },
+}
+const DAILY_TASK_TIERS := {
+	20: [ { "type": "gold", "amount": 500 } ],
+	40: [ { "type": "gold", "amount": 800 }, { "type": "diamond", "amount": 20 } ],
+	60: [ { "type": "diamond", "amount": 30 }, { "type": "ticket", "amount": 1 } ],
+	80: [ { "type": "diamond", "amount": 50 }, { "type": "gem", "quality": "white", "amount": 1 } ],
+	100: [ { "type": "diamond", "amount": 80 }, { "type": "ticket", "amount": 1 }, { "type": "gem", "quality": "white", "amount": 1 } ],
+}
+const WEEKLY_TASKS := {
+	&"story_total": { "name": "累计推关 10 关", "target": 10, "active": 50 },
+	&"upgrade_total": { "name": "累计升级 5 次", "target": 5, "active": 50 },
+	&"summon_total": { "name": "累计抽卡 5 次", "target": 5, "active": 50 },
+	&"dungeon_total": { "name": "累计通关秘境 5 次", "target": 5, "active": 50 },
+	&"tower_total": { "name": "累计爬塔 30 层", "target": 30, "active": 50 },
+	&"sweep_total": { "name": "累计扫荡 10 次", "target": 10, "active": 50 },
+}
+const WEEKLY_TASK_TIERS := {
+	50: [ { "type": "gold", "amount": 1000 } ],
+	100: [ { "type": "diamond", "amount": 50 } ],
+	150: [ { "type": "ticket", "amount": 1 } ],
+	200: [ { "type": "gem", "quality": "purple", "amount": 1 } ],
+	300: [ { "type": "equip", "amount": 1 } ],
+}
+
+# ------------------------------------------------------------------
+# 新手 7 日任务（设计文档 §10.14，v0.16；每天 2 目标达成领奖）
+#   任务 id：upgrade_count / story_count / summon_count / power（战力达标）/
+#            tower_count / dungeon_count / enchant_count
+# ------------------------------------------------------------------
+const NOVICE_TASKS := {
+	1: { "tasks": [ { "id": "upgrade_count", "target": 2 }, { "id": "story_count", "target": 3 } ], "reward": [ { "type": "gold", "amount": 500 }, { "type": "diamond", "amount": 20 } ] },
+	2: { "tasks": [ { "id": "summon_count", "target": 3 }, { "id": "story_count", "target": 5 } ], "reward": [ { "type": "diamond", "amount": 30 }, { "type": "ticket", "amount": 1 } ] },
+	3: { "tasks": [ { "id": "power", "target": 2000 }, { "id": "tower_count", "target": 5 } ], "reward": [ { "type": "diamond", "amount": 40 }, { "type": "gem", "quality": "white", "amount": 1 } ] },
+	4: { "tasks": [ { "id": "upgrade_count", "target": 5 }, { "id": "dungeon_count", "target": 3 } ], "reward": [ { "type": "gold", "amount": 1000 }, { "type": "diamond", "amount": 50 } ] },
+	5: { "tasks": [ { "id": "power", "target": 5000 }, { "id": "enchant_count", "target": 1 } ], "reward": [ { "type": "diamond", "amount": 60 }, { "type": "gem", "quality": "blue", "amount": 1 } ] },
+	6: { "tasks": [ { "id": "summon_count", "target": 5 }, { "id": "story_count", "target": 10 } ], "reward": [ { "type": "diamond", "amount": 80 }, { "type": "ticket", "amount": 2 } ] },
+	7: { "tasks": [ { "id": "tower_count", "target": 15 }, { "id": "power", "target": 8000 } ], "reward": [ { "type": "ticket", "amount": 3 }, { "type": "diamond", "amount": 100 } ] },
+}
+
+# ------------------------------------------------------------------
 # 抽卡 / 召唤系统（设计文档 §4 / 附录 B，阶段 1）
 # ------------------------------------------------------------------
 const SUMMON_COST_SINGLE := 300

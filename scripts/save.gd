@@ -67,6 +67,15 @@ func save_game() -> void:
 		"settings": {},
 		"shop_day": str(snapshot.get("shop_day", "")),
 		"shop_bought": {},
+		# v0.16：爬塔 / 签到 / 任务 / 新手
+		"tower_highest": maxi(int(snapshot.get("tower_highest", 0)), 0),
+		"tower_daily_count": maxi(int(snapshot.get("tower_daily_count", 0)), 0),
+		"sign_days": maxi(int(snapshot.get("sign_days", 0)), 0),
+		"sign_last_day": str(snapshot.get("sign_last_day", "")),
+		"task_daily": { "progress": {}, "claimed": [] },
+		"task_weekly": { "progress": {}, "claimed": [] },
+		"novice_progress": {},
+		"novice_claimed": [],
 	}
 	# 设置（白名单键 + 默认值补齐）
 	var settings_src: Dictionary = snapshot.get("settings", {})
@@ -80,6 +89,24 @@ func save_game() -> void:
 	for item_id in shop_bought_src:
 		if Data.SHOP_ITEMS.has(StringName(str(item_id))):
 			save_dict["shop_bought"][str(item_id)] = true
+	# v0.16：任务进度（progress 只认任务表 key，claimed 转 int 数组）
+	var task_daily_src: Dictionary = snapshot.get("task_daily", {})
+	_serialize_task(save_dict["task_daily"], task_daily_src, Data.DAILY_TASKS)
+	var task_weekly_src: Dictionary = snapshot.get("task_weekly", {})
+	_serialize_task(save_dict["task_weekly"], task_weekly_src, Data.WEEKLY_TASKS)
+	var novice_progress_src: Dictionary = snapshot.get("novice_progress", {})
+	for day in novice_progress_src:
+		var day_map: Dictionary = novice_progress_src[day]
+		if day_map is Dictionary:
+			save_dict["novice_progress"][str(day)] = {}
+			for task_id in day_map:
+				save_dict["novice_progress"][str(day)][str(task_id)] = maxi(int(day_map[task_id]), 0)
+	var novice_claimed_src: Variant = snapshot.get("novice_claimed", [])
+	if novice_claimed_src is Array:
+		for day in novice_claimed_src:
+			var d := int(day)
+			if d >= 1 and d <= 7:
+				save_dict["novice_claimed"].append(d)
 	# 背包物品（item_id → count，只认 Data.ITEMS）
 	var bag_src: Dictionary = snapshot.get("bag", {})
 	var bag_items_src: Dictionary = bag_src.get("items", {})
@@ -388,7 +415,57 @@ func load_game() -> Dictionary:
 		for item_id in shop_bought_src:
 			if Data.SHOP_ITEMS.has(StringName(str(item_id))):
 				result["shop_bought"][str(item_id)] = true
+	# —— v0.16：爬塔 / 签到 / 任务 / 新手 ——
+	if parsed_dict.has("tower_highest"):
+		result["tower_highest"] = maxi(int(parsed_dict["tower_highest"]), 0)
+	if parsed_dict.has("tower_daily_count"):
+		result["tower_daily_count"] = maxi(int(parsed_dict["tower_daily_count"]), 0)
+	if parsed_dict.has("sign_days"):
+		result["sign_days"] = maxi(int(parsed_dict["sign_days"]), 0)
+	if parsed_dict.has("sign_last_day"):
+		result["sign_last_day"] = str(parsed_dict["sign_last_day"])
+	_deserialize_task(result["task_daily"], parsed_dict.get("task_daily", {}), Data.DAILY_TASKS)
+	_deserialize_task(result["task_weekly"], parsed_dict.get("task_weekly", {}), Data.WEEKLY_TASKS)
+	var novice_progress_src: Variant = parsed_dict.get("novice_progress", {})
+	if novice_progress_src is Dictionary:
+		for day in novice_progress_src:
+			var day_map: Variant = novice_progress_src[day]
+			if day_map is Dictionary:
+				result["novice_progress"][str(day)] = {}
+				for task_id in day_map:
+					result["novice_progress"][str(day)][str(task_id)] = maxi(int(day_map[task_id]), 0)
+	var novice_claimed_src: Variant = parsed_dict.get("novice_claimed", [])
+	if novice_claimed_src is Array:
+		for day in novice_claimed_src:
+			var d := int(day)
+			if d >= 1 and d <= 7:
+				result["novice_claimed"].append(d)
 	return result
+
+## 反序列化任务存储（progress 只认任务表 key；claimed 只认该任务表档位）
+func _deserialize_task(target: Dictionary, src: Variant, task_table: Dictionary, tier_table: Dictionary = {}) -> void:
+	if src is Dictionary:
+		var progress: Variant = src.get("progress", {})
+		if progress is Dictionary:
+			for task_id in progress:
+				if task_table.has(StringName(str(task_id))):
+					target["progress"][str(task_id)] = maxi(int(progress[task_id]), 0)
+		var claimed: Variant = src.get("claimed", [])
+		if claimed is Array:
+			for tier in claimed:
+				target["claimed"].append(int(tier))
+
+## 序列化任务存储（progress 只认任务表 key，claimed 转 int 数组）
+func _serialize_task(target: Dictionary, src: Dictionary, task_table: Dictionary) -> void:
+	var progress: Variant = src.get("progress", {})
+	if progress is Dictionary:
+		for task_id in progress:
+			if task_table.has(StringName(str(task_id))):
+				target["progress"][str(task_id)] = maxi(int(progress[task_id]), 0)
+	var claimed: Variant = src.get("claimed", [])
+	if claimed is Array:
+		for tier in claimed:
+			target["claimed"].append(int(tier))
 
 ## 清空存档文件（供 Game.reset_save 使用：删除 user://save.json，下次读档回默认值）
 func clear_save() -> void:
@@ -444,4 +521,13 @@ func _default_data() -> Dictionary:
 		"settings": Data.SETTINGS_DEFAULTS.duplicate(),
 		"shop_day": Time.get_date_string_from_system(),
 		"shop_bought": {},
+		# v0.16：爬塔 / 签到 / 任务 / 新手（默认空）
+		"tower_highest": 0,
+		"tower_daily_count": 0,
+		"sign_days": 0,
+		"sign_last_day": "",
+		"task_daily": { "progress": {}, "claimed": [] },
+		"task_weekly": { "progress": {}, "claimed": [] },
+		"novice_progress": {},
+		"novice_claimed": [],
 	}

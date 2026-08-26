@@ -72,6 +72,16 @@ var settings: Dictionary = {}                     # 设置 {music_on, sfx_on, mu
 var shop_day: String = ""                         # 上次商城刷新日（本地日期；跨日清已购）
 var shop_bought: Dictionary = {}                  # 当日已购 {item_id: true}（每商品每日限购 1 次）
 
+## v0.16：爬塔 / 签到 / 任务 / 新手
+var tower_highest: int = 0                        # 爬塔最高层
+var tower_daily_count: int = 0                    # 当日已爬层数（每日 30 层上限，跨日重置）
+var sign_days: int = 0                            # 签到连续天数（断签归 0）
+var sign_last_day: String = ""                    # 上次签到日
+var task_daily: Dictionary = { "progress": {}, "claimed": [] }    # 每日任务 {progress:{task_id:count}, claimed:[tier]}
+var task_weekly: Dictionary = { "progress": {}, "claimed": [] }   # 每周任务（每周一重置）
+var novice_progress: Dictionary = {}              # 新手 7 日进度 {day: {task_id: count}}
+var novice_claimed: Array = []                    # 已领新手奖励的天 [day]
+
 ## 当前战斗状态（非战斗时 active = false）
 var battle: Dictionary = {
 	"level": 1,
@@ -293,11 +303,37 @@ func _load_initial_state() -> void:
 		for item_id in shop_bought_data:
 			if Data.SHOP_ITEMS.has(StringName(str(item_id))):
 				shop_bought[str(item_id)] = true
+	# —— v0.16：爬塔 / 签到 / 任务 / 新手 ——
+	tower_highest = maxi(int(data.get("tower_highest", 0)), 0)
+	tower_daily_count = maxi(int(data.get("tower_daily_count", 0)), 0)
+	sign_days = maxi(int(data.get("sign_days", 0)), 0)
+	sign_last_day = str(data.get("sign_last_day", ""))
+	task_daily = { "progress": {}, "claimed": [] }
+	task_weekly = { "progress": {}, "claimed": [] }
+	_load_task_store(task_daily, data.get("task_daily", {}))
+	_load_task_store(task_weekly, data.get("task_weekly", {}))
+	novice_progress.clear()
+	var novice_prog_data: Variant = data.get("novice_progress", {})
+	if novice_prog_data is Dictionary:
+		for day in novice_prog_data:
+			var day_map: Variant = novice_prog_data[day]
+			if day_map is Dictionary:
+				novice_progress[str(day)] = {}
+				for task_id in day_map:
+					novice_progress[str(day)][str(task_id)] = maxi(int(day_map[task_id]), 0)
+	novice_claimed = []
+	var novice_claimed_data: Variant = data.get("novice_claimed", [])
+	if novice_claimed_data is Array:
+		for day in novice_claimed_data:
+			var d := int(day)
+			if d >= 1 and d <= 7:
+				novice_claimed.append(d)
 	# 商城跨日刷新（清已购）
 	_check_shop_refresh()
-	# 每日重置（跨日清体力购买次数）+ 离线体力恢复结算
+	# 每日重置（跨日清体力购买/爬塔日限/每日任务/签到断签；每周一清周任务）+ 离线体力恢复结算
 	_check_daily_reset()
 	_recover_stamina()
+	_refresh_novice_power()
 
 ## 建节拍计时器：挂机常驻，战斗按需启动
 func _setup_timers() -> void:
@@ -339,6 +375,11 @@ func _emit_initial_state() -> void:
 	# v0.15：设置 / 商城
 	Contract.settings_changed.emit(settings)
 	Contract.shop_changed.emit(_shop_items_list(), shop_bought)
+	# v0.16：爬塔 / 签到 / 任务 / 新手
+	Contract.tower_changed.emit(tower_highest, tower_daily_count)
+	Contract.sign_changed.emit(sign_days)
+	Contract.task_changed.emit(task_daily, task_weekly)
+	Contract.novice_changed.emit(_current_novice_day(), novice_progress, novice_claimed)
 
 ## 由 Data 基础值 + 当前等级 + 星级 + 装备计算机娘完整属性（hp 为满血）
 ## 星级加成（v0.10）：每星基础属性 ×(1 + STAR_STAT_GAIN)^(star-1)
@@ -479,6 +520,11 @@ func upgrade(mech_id: StringName) -> void:
 	# 若动用了余额，通知余额变化（契约 §3.5 v0.6）
 	if exp_from_balance > 0:
 		Contract.exp_balance_updated.emit(exp_balance)
+	# 任务钩子（v0.16）：升级
+	_bump_task("daily", &"upgrade_mech")
+	_bump_task("weekly", &"upgrade_total")
+	_bump_novice(&"upgrade_count")
+	_refresh_novice_power()
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -1251,10 +1297,13 @@ func _remaining_hp_ratio(units: Array) -> float:
 		return 0.0
 	return total / max_total
 
-## 胜利：按战斗模式分流（主线 story / 秘境 dungeon，v0.13）
+## 胜利：按战斗模式分流（主线 story / 秘境 dungeon / 爬塔 tower，v0.16）
 func _resolve_victory() -> void:
 	if battle.mode == &"dungeon":
 		_resolve_dungeon_victory()
+		return
+	if battle.mode == &"tower":
+		_resolve_tower_victory()
 		return
 	battle.active = false
 	battle_timer.stop()
@@ -1307,6 +1356,10 @@ func _resolve_victory() -> void:
 		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
 	# 记录本局通关信息（内存态，不入档）
 	last_clear = { "level": level, "first_clear": first_clear, "reward": reward }
+	# 任务钩子（v0.16）：推主线
+	_bump_task("daily", &"story_levels")
+	_bump_task("weekly", &"story_total")
+	_bump_novice(&"story_count")
 	Contract.battle_star.emit(star)
 	Contract.level_cleared.emit(level, first_clear)
 	Save.save_game()
@@ -1406,6 +1459,8 @@ func _on_idle_tick() -> void:
 	# v0.13：体力自然恢复结算（满上限停止）+ 每日重置检查
 	_check_daily_reset()
 	_recover_stamina()
+	# v0.16：战力达标类新手任务检查
+	_refresh_novice_power()
 	# 待收获金额（金币+经验）+ 时间戳自动存档节流（契约 §3.2 / §3.6：每 5 秒一次，间隔数值在 Data）
 	_idle_save_accum += Data.IDLE_TICK_INTERVAL
 	if _idle_save_accum >= Data.SAVE_THROTTLE_INTERVAL:
@@ -1430,6 +1485,7 @@ func collect_idle() -> void:
 	idle_pending_exp = 0.0
 	idle_last_time = int(Time.get_unix_time_from_system())
 	Contract.idle_rewards_updated.emit(0, 0)
+	_bump_task("daily", &"collect_idle")  # 任务钩子（v0.16）：收获
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -1525,6 +1581,10 @@ func summon(pool: StringName, times: int) -> void:
 	if got_new:
 		Contract.owned_mechs_updated.emit(_owned_mech_ids())
 	Contract.gacha_result.emit(entries)
+	# 任务钩子（v0.16）：抽卡
+	_bump_task("daily", &"summon")
+	_bump_task("weekly", &"summon_total")
+	_bump_novice(&"summon_count")
 	Save.save_game()
 
 ## 单抽内部：SSR 80 保底累计 + 按概率抽一个机娘（契约 §3.8）
@@ -1959,6 +2019,9 @@ func upgrade_equip(uid: StringName) -> void:
 	var wearer := _equip_wearer(uid)
 	if not wearer.is_empty():
 		_emit_mech_after_equip(wearer)
+	# 任务钩子（v0.16）：装备强化 + 战力任务刷新
+	_bump_novice(&"enchant_count")
+	_refresh_novice_power()
 	Save.save_game()
 
 ## ---------------------------------------------------------------
@@ -2050,12 +2113,41 @@ func get_stamina() -> int:
 	_recover_stamina()
 	return stamina
 
-## 每日重置（跨本地日期清当日体力购买次数；后续签到/任务复用 last_reset_day）
+## 每日重置（v0.16 扩展：跨日清体力购买/爬塔日限/每日任务/签到断签；每周一清周任务）
 func _check_daily_reset() -> void:
 	var today: String = Time.get_date_string_from_system()
-	if last_reset_day != today:
-		last_reset_day = today
-		stamina_buy_count = 0
+	if last_reset_day == today:
+		return
+	# 跨日：清体力购买次数 / 爬塔日限 / 每日任务
+	stamina_buy_count = 0
+	tower_daily_count = 0
+	task_daily = { "progress": {}, "claimed": [] }
+	# 签到：昨天没签 → 断签归 0
+	if sign_last_day != _date_offset(today, -1):
+		sign_days = 0
+	# 每周一重置周任务（每天只处理一次，防重复清）
+	var weekday: int = int(Time.get_date_dict_from_system()["weekday"])
+	if weekday == 1:
+		task_weekly = { "progress": {}, "claimed": [] }
+	last_reset_day = today
+
+## 日期偏移（YYYY-MM-DD ± N 天）
+func _date_offset(date_str: String, offset_days: int) -> String:
+	var ts: int = int(Time.get_unix_time_from_datetime_string(date_str + "T00:00:00"))
+	return Time.get_date_string_from_unix_time(ts + offset_days * 86400)
+
+## 读档任务存储（progress 只认任务表 key）
+func _load_task_store(store: Dictionary, src: Variant) -> void:
+	if not (src is Dictionary):
+		return
+	var progress: Variant = src.get("progress", {})
+	if progress is Dictionary:
+		for task_id in progress:
+			store["progress"][str(task_id)] = maxi(int(progress[task_id]), 0)
+	var claimed: Variant = src.get("claimed", [])
+	if claimed is Array:
+		for tier in claimed:
+			store["claimed"].append(int(tier))
 
 ## 体力恢复结算：按"现在-上次"补入（满上限停止，不溢出）
 func _recover_stamina() -> void:
@@ -2137,6 +2229,9 @@ func start_dungeon(kind: StringName, tier: int) -> void:
 		stamina -= cost
 		Contract.stamina_changed.emit(stamina)
 	_dungeon_mark_attempted(kind, tier)
+	# 任务钩子（v0.16）：挑战秘境
+	_bump_task("daily", &"dungeon")
+	_bump_novice(&"dungeon_count")
 	_start_dungeon_battle(kind, tier, cost)
 
 ## 构建秘境战斗（敌方按档位配置 waves，单波）
@@ -2208,6 +2303,9 @@ func sweep_dungeon(kind: StringName, tier: int) -> void:
 	Contract.stamina_changed.emit(stamina)
 	var rewards := _grant_dungeon_reward(kind, tier, _formation_mech_ids())
 	Contract.dungeon_reward.emit(kind, tier, rewards)
+	# 任务钩子（v0.16）：扫荡
+	_bump_task("daily", &"dungeon_sweep")
+	_bump_task("weekly", &"sweep_total")
 	Save.save_game()
 
 ## 上阵机娘 id（当前阵型，含重复过滤）
@@ -2464,6 +2562,263 @@ func reset_save() -> void:
 	Save.save_game()
 	_emit_initial_state()
 
+## ================================================================
+## v0.16：爬塔（契约 §3.13 / 设计文档 §10.2）
+## ================================================================
+## 进入爬塔下一层（契约 §3.6 入口，v0.16）：不耗体力、每日 30 层上限；
+## 挑战当前最高未通关层（tower_highest + 1）；battle.mode = "tower"
+func start_tower() -> void:
+	_check_daily_reset()
+	if tower_daily_count >= Data.TOWER_DAILY_LIMIT:
+		return
+	_start_tower_battle(tower_highest + 1)
+
+## 构建爬塔战斗（每层一波敌人、强度随层数）
+func _start_tower_battle(layer: int) -> void:
+	if formation.size() < 2:
+		_ensure_default_formation()
+	var growth: float = pow(Data.TOWER_ENEMY_GROWTH, float(layer - 1))
+	var atk: int = roundi(float(Data.TOWER_ENEMY_BASE_ATK) * growth)
+	var hp: int = roundi(float(Data.TOWER_ENEMY_BASE_HP) * growth)
+	var def: int = Data.TOWER_ENEMY_BASE_DEF + int(layer / 5)
+	var spd: int = Data.TOWER_ENEMY_BASE_SPD + int(layer / 10)
+	var enemy_count: int = 1 if layer % 5 != 0 else 2
+	var wave_cfg: Array = []
+	for i in enemy_count:
+		wave_cfg.append({
+			"id": StringName("tower_e" + str(layer) + "_" + str(i)),
+			"name": "爬塔守层兵",
+			"tier": "normal",
+			"class": "fighter",
+			"atk": atk, "hp": hp, "def": def, "spd": spd,
+			"skills": [&"enemy_shot"],
+		})
+	battle = {
+		"level": 0,
+		"tick": 0,
+		"active": true,
+		"mode": &"tower",
+		"dungeon_ctx": { "layer": layer },
+		"wave": 1,
+		"total_waves": 1,
+		"mechs": [], "enemies": [], "pending_waves": [],
+		"deaths": 0, "mech_ids": [], "accelerate": accelerate,
+	}
+	var used_ids := {}
+	for slot in formation:
+		var mech_id := StringName(str(slot.id))
+		if not owned_mechs.has(mech_id) or used_ids.has(mech_id):
+			continue
+		used_ids[mech_id] = true
+		battle.mechs.append(_build_mech_unit(mech_id, int(slot.row), int(slot.col)))
+		battle.mech_ids.append(mech_id)
+	_spawn_wave(wave_cfg)
+	_apply_passive_battle_start()
+	Contract.battle_tick.emit(0)
+	for m in battle.mechs:
+		Contract.mech_girl_updated.emit(m.id, int(m.hp), int(m.atk), int(m.level))
+		Contract.energy_changed.emit(&"mech", m.id, int(m.energy))
+	for e in battle.enemies:
+		Contract.enemy_updated.emit(e.id, int(e.hp))
+		Contract.energy_changed.emit(&"enemy", e.id, int(e.energy))
+	Contract.wave_changed.emit(1, 1)
+	_apply_battle_timer_speed()
+	battle_timer.start()
+
+## 爬塔胜利：层+1 / 日+1 → 普通层奖励 → 每 10 层大奖 → 任务钩子 → tower_changed
+func _resolve_tower_victory() -> void:
+	battle.active = false
+	battle_timer.stop()
+	var layer: int = int(battle.dungeon_ctx.layer)
+	tower_highest = maxi(tower_highest, layer)
+	tower_daily_count += 1
+	# 普通层奖励：金币 + 经验（个人条）
+	gold += Data.TOWER_NORMAL_GOLD_BASE + layer * Data.TOWER_NORMAL_GOLD_PER_LEVEL
+	Contract.gold_changed.emit(gold)
+	var exp_reward: int = Data.TOWER_NORMAL_EXP_BASE + layer
+	for mech_id in battle.mech_ids:
+		var mid := StringName(mech_id)
+		if int(mech_levels.get(mid, 1)) >= get_level_cap(mid):
+			continue
+		var new_exp: int = int(mech_exp.get(mid, 0)) + exp_reward
+		mech_exp[mid] = new_exp
+		Contract.mech_exp_updated.emit(mid, new_exp, _upgrade_exp_cost(mid, int(mech_levels.get(mid, 1))))
+	# 每 10 层大奖（钻石/召唤券/宝石）
+	if layer % 10 == 0:
+		var ten: int = int(layer / 10)
+		diamond += Data.TOWER_GRAND_DIAMOND_BASE + (ten - 1) * Data.TOWER_GRAND_DIAMOND_PER
+		Contract.diamond_changed.emit(diamond)
+		if ten >= 1:
+			summon_ticket += ten
+		if layer >= Data.TOWER_GRAND_GEM_EVERY:
+			gem_stock[&"white"] = int(gem_stock.get(&"white", 0)) + int(layer / Data.TOWER_GRAND_GEM_EVERY)
+			Contract.gem_stock_changed.emit(gem_stock)
+	# 任务钩子
+	_bump_task("daily", &"tower")
+	_bump_task("weekly", &"tower_total")
+	_bump_novice(&"tower_count")
+	Contract.tower_changed.emit(tower_highest, tower_daily_count)
+	Save.save_game()
+
+## 只读：爬塔信息（契约 §3.6 入口，v0.16）
+func get_tower_info() -> Dictionary:
+	_check_daily_reset()
+	return { "highest": tower_highest, "daily_count": tower_daily_count, "daily_limit": Data.TOWER_DAILY_LIMIT }
+
+## ================================================================
+## v0.16：每日签到（契约 §3.13 / 设计文档 §10.3）
+## ================================================================
+## 签到（契约 §3.6 入口，v0.16）：每日 1 次；连续签到累计，断签归 0；
+## 每累计 7 天发额外奖（钻石/召唤券/宝石）
+func sign_in() -> void:
+	_check_daily_reset()
+	var today: String = Time.get_date_string_from_system()
+	if sign_last_day == today:
+		return
+	if sign_last_day == _date_offset(today, -1):
+		sign_days += 1
+	else:
+		sign_days = 1
+	sign_last_day = today
+	gold += Data.SIGN_GOLD
+	diamond += Data.SIGN_DIAMOND
+	Contract.gold_changed.emit(gold)
+	Contract.diamond_changed.emit(diamond)
+	if sign_days % 7 == 0:
+		diamond += Data.SIGN_7_DIAMOND
+		summon_ticket += Data.SIGN_7_TICKET
+		gem_stock[&"white"] = int(gem_stock.get(&"white", 0)) + Data.SIGN_7_GEM
+		Contract.diamond_changed.emit(diamond)
+		Contract.gem_stock_changed.emit(gem_stock)
+	_bump_task("daily", &"sign")
+	Contract.sign_changed.emit(sign_days)
+	Save.save_game()
+
+## 只读：签到信息（契约 §3.6 入口，v0.16）
+func get_sign_info() -> Dictionary:
+	_check_daily_reset()
+	return { "days": sign_days, "last_day": sign_last_day, "today_signed": sign_last_day == Time.get_date_string_from_system() }
+
+## ================================================================
+## v0.16：每日/周任务（契约 §3.13 / 设计文档 §10.3）
+## ================================================================
+## 任务进度累计（各动作处调用；达标才计活跃度）
+func _bump_task(scope: String, task_id: StringName, amount: int = 1) -> void:
+	var store: Dictionary = task_daily if scope == "daily" else task_weekly
+	var key: String = str(task_id)
+	store["progress"][key] = int(store["progress"].get(key, 0)) + amount
+	Contract.task_changed.emit(task_daily, task_weekly)
+
+## 当前活跃度（达标任务的活跃度之和）
+func _task_active(scope: String) -> int:
+	var tasks: Dictionary = Data.DAILY_TASKS if scope == "daily" else Data.WEEKLY_TASKS
+	var store: Dictionary = task_daily if scope == "daily" else task_weekly
+	var total := 0
+	for task_id in tasks:
+		if int(store["progress"].get(str(task_id), 0)) >= int(tasks[task_id].target):
+			total += int(tasks[task_id].active)
+	return total
+
+## 领取任务档位奖励（契约 §3.6 入口，v0.16）：scope = "daily"/"weekly"
+func claim_task_reward(scope: String, tier: int) -> void:
+	if scope != "daily" and scope != "weekly":
+		return
+	var tiers: Dictionary = Data.DAILY_TASK_TIERS if scope == "daily" else Data.WEEKLY_TASK_TIERS
+	if not tiers.has(tier):
+		return
+	var store: Dictionary = task_daily if scope == "daily" else task_weekly
+	if store["claimed"].has(tier):
+		return
+	if _task_active(scope) < tier:
+		return
+	for reward in tiers[tier]:
+		_grant_task_reward(reward)
+	store["claimed"].append(tier)
+	Contract.task_changed.emit(task_daily, task_weekly)
+	Save.save_game()
+
+## 只读：任务信息（契约 §3.6 入口，v0.16）
+func get_task_info() -> Dictionary:
+	return { "daily": task_daily, "weekly": task_weekly }
+
+## 发放任务/新手奖励（gold/diamond/ticket/gem/equip；入账走既有信号）
+func _grant_task_reward(reward: Dictionary) -> void:
+	match str(reward.type):
+		"gold":
+			gold += int(reward.amount)
+			Contract.gold_changed.emit(gold)
+		"diamond":
+			diamond += int(reward.amount)
+			Contract.diamond_changed.emit(diamond)
+		"ticket":
+			summon_ticket += int(reward.amount)
+		"gem":
+			var q := StringName(str(reward.get("quality", "white")))
+			gem_stock[q] = int(gem_stock.get(q, 0)) + int(reward.amount)
+			Contract.gem_stock_changed.emit(gem_stock)
+		"equip":
+			equip_inventory.append(_spawn_equip(_random_slot(), 1 + randi() % 2))
+			Contract.equip_inventory_changed.emit(equip_inventory)
+
+## ================================================================
+## v0.16：新手 7 日任务（契约 §3.13 / 设计文档 §10.14）
+## ================================================================
+## 新手任务进度累计（各动作处调用）
+func _bump_novice(task_id: StringName, amount: int = 1) -> void:
+	var key: String = str(task_id)
+	for day in Data.NOVICE_TASKS:
+		for t in Data.NOVICE_TASKS[day].tasks:
+			if str(t.id) == key:
+				if not novice_progress.has(str(day)):
+					novice_progress[str(day)] = {}
+				novice_progress[str(day)][key] = int(novice_progress[str(day)].get(key, 0)) + amount
+	Contract.novice_changed.emit(_current_novice_day(), novice_progress, novice_claimed)
+
+## 当天任务是否全部达标
+func _novice_day_done(day: int) -> bool:
+	for t in Data.NOVICE_TASKS[day].tasks:
+		var key: String = str(t.id)
+		if int(novice_progress.get(str(day), {}).get(key, 0)) < int(t.target):
+			return false
+	return true
+
+## 当前新手进度天（第一个未领的天；全部领完返回 8）
+func _current_novice_day() -> int:
+	for day in range(1, 8):
+		if not novice_claimed.has(day):
+			return day
+	return 8
+
+## 领取新手第 day 天奖励（契约 §3.6 入口，v0.16）
+func claim_novice_reward(day: int) -> void:
+	if not Data.NOVICE_TASKS.has(day) or novice_claimed.has(day):
+		return
+	if not _novice_day_done(day):
+		return
+	for reward in Data.NOVICE_TASKS[day].reward:
+		_grant_task_reward(reward)
+	novice_claimed.append(day)
+	Contract.novice_changed.emit(_current_novice_day(), novice_progress, novice_claimed)
+	Save.save_game()
+
+## 只读：新手信息（契约 §3.6 入口，v0.16）
+func get_novice_info() -> Dictionary:
+	return { "day": _current_novice_day(), "progress": novice_progress, "claimed": novice_claimed }
+
+## 战力达标类新手任务（power）：上阵战力 ≥ 目标即置 1；在战力相关动作/每帧检查
+func _refresh_novice_power() -> void:
+	var power: int = _team_power()
+	var changed := false
+	for day in Data.NOVICE_TASKS:
+		for t in Data.NOVICE_TASKS[day].tasks:
+			if str(t.id) == "power" and int(novice_progress.get(str(day), {}).get("power", 0)) < 1 and power >= int(t.target):
+				if not novice_progress.has(str(day)):
+					novice_progress[str(day)] = {}
+				novice_progress[str(day)]["power"] = 1
+				changed = true
+	if changed:
+		Contract.novice_changed.emit(_current_novice_day(), novice_progress, novice_claimed)
+
 ## ---------------------------------------------------------------
 ## 只读快照（供 Save.save_game 写档；只读不改任何数值）
 ## 签名：get_save_snapshot() -> Dictionary
@@ -2523,4 +2878,13 @@ func get_save_snapshot() -> Dictionary:
 		"settings": settings,
 		"shop_day": shop_day,
 		"shop_bought": shop_bought,
+		# v0.16：爬塔 / 签到 / 任务 / 新手
+		"tower_highest": tower_highest,
+		"tower_daily_count": tower_daily_count,
+		"sign_days": sign_days,
+		"sign_last_day": sign_last_day,
+		"task_daily": task_daily,
+		"task_weekly": task_weekly,
+		"novice_progress": novice_progress,
+		"novice_claimed": novice_claimed,
 	}

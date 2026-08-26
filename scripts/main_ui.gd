@@ -62,6 +62,10 @@ extends Control
 @onready var _equipment_button: Button = $root_box/feature_row/equipment_button
 @onready var _shop_button: Button = $root_box/feature_row/shop_button
 @onready var _settings_button: Button = $root_box/feature_row/settings_button
+@onready var _tower_button: Button = $root_box/feature_row2/tower_button
+@onready var _task_button: Button = $root_box/feature_row2/task_button
+@onready var _novice_button: Button = $root_box/feature_row2/novice_button
+@onready var _sign_button: Button = $root_box/feature_row2/sign_button
 @onready var _save_button: Button = $root_box/bottom_row/save_button
 @onready var _gacha_button: Button = $root_box/bottom_row/gacha_button
 @onready var _formation_button: Button = $root_box/bottom_row/formation_button
@@ -87,6 +91,7 @@ func _ready() -> void:
 	Contract.box_count_changed.connect(_on_box_count_changed)
 	Contract.bag_updated.connect(_on_bag_updated)
 	Contract.box_opened.connect(_on_box_opened)
+	Contract.sign_changed.connect(_on_sign_changed)
 	_collect_button.pressed.connect(_on_collect_pressed)
 	_challenge_button.pressed.connect(_on_enter_battle_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
@@ -98,6 +103,10 @@ func _ready() -> void:
 	_equipment_button.pressed.connect(_on_equipment_pressed)
 	_shop_button.pressed.connect(_on_shop_pressed)
 	_settings_button.pressed.connect(_on_settings_pressed)
+	_tower_button.pressed.connect(_on_tower_pressed)
+	_task_button.pressed.connect(_on_task_pressed)
+	_novice_button.pressed.connect(_on_novice_pressed)
+	_sign_button.pressed.connect(_on_sign_pressed)
 	_rebuild_mech_rows()
 	_seed_initial_state()
 
@@ -269,6 +278,47 @@ func _on_shop_pressed() -> void:
 func _on_settings_pressed() -> void:
 	# v0.15：进入设置界面
 	get_tree().change_scene_to_file("res://scenes/Settings.tscn")
+
+
+func _on_tower_pressed() -> void:
+	# v0.16：进入爬塔界面
+	get_tree().change_scene_to_file("res://scenes/Tower.tscn")
+
+
+func _on_task_pressed() -> void:
+	# v0.16：进入任务界面
+	get_tree().change_scene_to_file("res://scenes/Task.tscn")
+
+
+func _on_novice_pressed() -> void:
+	# v0.16：进入新手福利界面
+	get_tree().change_scene_to_file("res://scenes/Novice.tscn")
+
+
+func _on_sign_pressed() -> void:
+	# v0.16：每日签到（结果由 sign_changed + 货币信号回发）
+	Game.sign_in()
+
+
+func _on_sign_changed(days: int) -> void:
+	# v0.16：签到反馈 + 刷新按钮状态
+	if days % 7 == 0:
+		_message_label.text = "签到成功！连续 %d 天，满 7 天额外奖励！" % days
+	else:
+		_message_label.text = "签到成功！连续 %d 天" % days
+	_refresh_sign_button()
+
+
+func _refresh_sign_button() -> void:
+	# 只读 get_sign_info()：显示连续天数；今日已签则禁用
+	var info: Dictionary = Game.get_sign_info()
+	var days: int = int(info.get("days", 0))
+	if bool(info.get("today_signed", false)):
+		_sign_button.text = "已签到（连 %d 天）" % days
+		_sign_button.disabled = true
+	else:
+		_sign_button.text = "签到（连 %d 天）" % days
+		_sign_button.disabled = false
 
 
 ## ------------------------------------------------------------------
@@ -497,6 +547,7 @@ func _seed_initial_state() -> void:
 	_diamond_label.text = "钻石：%d" % Game.diamond
 	_stamina_label.text = "体力 %d/%d" % [Game.get_stamina(), Data.STAMINA_MAX]
 	_on_box_count_changed(Game.get_box_count())
+	_refresh_sign_button()
 	_refresh_balance()
 	_render_all_rows()
 	_refresh_challenge()
