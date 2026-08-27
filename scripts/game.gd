@@ -1347,7 +1347,8 @@ func _targets_for(unit, target_type: String) -> Array:
 			return [unit]
 	return []
 
-## 默认攻击目标：嘲讽优先 → 同列最近 → 前排（靠近敌方一侧）优先 → 列距兜底（v0.11）
+## 默认攻击目标（#36 修正，v0.23）：嘲讽优先 → 正前方（同一横排 row 相同——§1.5 我方朝右/敌方朝左横向对阵，正前方 = 同排面对面）
+## → 前排（靠近敌方一侧）优先 → 列距兜底
 ## 前排判定：我方攻击敌方时，敌方 col 越小越靠前（敌方 col0 为前排，先接敌）；
 ##            敌方攻击我方时，我方 col 越大越靠前（我方 col2 为前排，先接敌）
 func _default_attack_target(attacker) -> Dictionary:
@@ -1360,11 +1361,13 @@ func _default_attack_target(attacker) -> Dictionary:
 	for e in enemies:
 		if not bool(e.alive):
 			continue
+		# 正前方 = 同一横排（row 相同；横向对阵同排面对面，v0.23 #36：原误用 col 相同 → 改 row 相同）
+		var row_diff: int = absi(int(e.row) - int(attacker.row))
+		var same_row: int = 0 if row_diff == 0 else 1
 		var col_diff: int = absi(int(e.col) - int(attacker.col))
-		var same_col: int = 0 if col_diff == 0 else 1
 		# 靠近敌方一侧优先：我方攻击者取 e.col（小=前排 col0）；敌方攻击者取 (2 - e.col)（大=前排 col2）
 		var front: int = int(e.col) if attacker.side == &"mech" else 2 - int(e.col)
-		var score: int = same_col * 1000 + front * 10 + col_diff
+		var score: int = same_row * 1000 + front * 10 + col_diff
 		if score < best_score:
 			best_score = score
 			best = e
