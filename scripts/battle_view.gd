@@ -347,8 +347,10 @@ func _build_grid(grid: GridContainer) -> Array:
 	return cells
 
 
-func _place_units(units: Array, cells: Array, cells_by_id: Dictionary, _side: StringName) -> void:
+func _place_units(units: Array, cells: Array, cells_by_id: Dictionary, side: StringName) -> void:
 	_clear_cells(cells, cells_by_id)
+	# v0.23（P #35）：轻量朝向占位——我方朝右"→"、敌方朝左"←"（面对面观感，立绘待美术）
+	var arrow: String = "→ " if side == &"mech" else "← "
 	for u in units:
 		var id := StringName(u.id)
 		var idx: int = int(u.row) * 3 + int(u.col)
@@ -356,7 +358,7 @@ func _place_units(units: Array, cells: Array, cells_by_id: Dictionary, _side: St
 			continue
 		var cell: Dictionary = cells[idx]
 		cell.max_hp = int(u.max_hp)
-		cell.name_label.text = "%s\n%s" % [str(u.name), _class_text(StringName(str(u.class)))]
+		cell.name_label.text = "%s%s\n%s" % [arrow, str(u.name), _class_text(StringName(str(u.class)))]
 		cell.name_label.modulate = Color.WHITE
 		cell.hp_bar.max_value = float(int(u.max_hp))
 		cell.hp_bar.value = float(int(u.hp))
